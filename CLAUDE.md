@@ -6,8 +6,10 @@ This file guides Claude Code (and other AI agents via the `AGENTS.md` symlink) w
 
 ## What Cadence Is
 
-Cadence is a Claude Code / Codex plugin that ships three PR-lifecycle skills:
+Cadence is a Claude Code / Codex plugin shipping skills for the AI coding lifecycle — from issue intake to merged PR:
 
+- `triage-issue` — single-issue triage: labels + meta comment
+- `investigate-issue` — single-issue deep-dive: verify claims at HEAD, propose fix direction
 - `self-review` — pre-push codex cross-model loop
 - `pr-review` — on-PR multi-role subagent dispatch (4 fresh role contexts)
 - `pr-babysit` — until-merge CI watch + reviewer-feedback triage
@@ -22,6 +24,8 @@ Each skill lives in `skills/<name>/SKILL.md`. There is **no application code** �
 .agents/plugins/            # Codex marketplace manifest (kirkchen-cadence)
 plugins/cadence/            # Codex plugin overlay — symlinks back to root
 skills/
+├── triage-issue/SKILL.md
+├── investigate-issue/SKILL.md
 ├── self-review/SKILL.md
 ├── pr-review/
 │   ├── SKILL.md
@@ -40,7 +44,8 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 2. **Subagent dispatch is mandatory** in pr-review — never collapse the 4 role prompts into one prompt. Each role is a *fresh* context with a different mental model. Pooling them defeats the diversity guarantee.
 3. **`self-review` is cross-model**, not Claude-vs-Claude. Calling Claude to grade Claude's own diff is the same bias trap as pr-review's gate.
 4. **`pr-babysit` never auto-merges.** It reports ready-to-merge and stops. Merge is a human decision.
-5. **No project-specific assumptions in skill text.** Cadence is meant to be repo-agnostic. Hardcoded paths, internal hostnames, project names → reject in review.
+5. **Intake skills are single-issue.** `triage-issue` / `investigate-issue` process one issue per invocation. Batch / backlog walkthroughs are the caller's responsibility — keep the skill a pure unit. Don't pull `gh issue list` orchestration into the skill itself.
+6. **No project-specific assumptions in skill text.** Cadence is meant to be repo-agnostic. Hardcoded paths, internal hostnames, project names, language defaults → reject in review.
 
 ## Updating Skills
 
@@ -64,4 +69,4 @@ No automated tests yet — skills are prompts, validated empirically through dog
 
 ## History
 
-Extracted from [`kirkchen/rhythm`](https://github.com/kirkchen/rhythm) in 2026-05. Originally lived under `rhythm/.claude/skills/` alongside other Rhythm-specific skills (`beat-supervise`, `triaging-issues`, `investigating-issues`). Pulled out when the three PR-lifecycle skills proved generic enough to share across projects.
+Extracted from [`kirkchen/rhythm`](https://github.com/kirkchen/rhythm) in 2026-05. Originally `rhythm/.claude/skills/` contained `self-review` / `pr-review` / `pr-babysit` (PR lifecycle) alongside `triaging-issues` / `investigating-issues` (issue intake) and `beat-supervise` (Rhythm-specific worker supervisor). The PR lifecycle three landed in cadence first; the issue intake pair followed in 2026-05 when cadence's scope was widened from "PR review lifecycle" to "AI coding lifecycle". `beat-supervise` stays in rhythm because it depends on Rhythm's worker/supervisor runtime.

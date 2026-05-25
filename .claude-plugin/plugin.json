@@ -1,12 +1,12 @@
 {
   "name": "cadence",
-  "description": "PR review lifecycle plugin: self-review (pre-push) → pr-review (on-PR, 4-role subagent dispatch) → pr-babysit (until merge).",
-  "version": "0.1.1",
+  "description": "AI coding lifecycle skills: triage-issue / investigate-issue (intake) → self-review (pre-push) → pr-review (on-PR, 4-role subagent dispatch) → pr-babysit (until merge).",
+  "version": "0.2.0",
   "author": {
     "name": "Kirk Chen"
   },
   "homepage": "https://github.com/kirkchen/cadence",
   "repository": "https://github.com/kirkchen/cadence",
   "license": "MIT",
-  "keywords": ["code-review", "pr-review", "self-review", "ci", "workflow"]
+  "keywords": ["ai-coding", "code-review", "pr-review", "self-review", "issue-triage", "workflow"]
 }
