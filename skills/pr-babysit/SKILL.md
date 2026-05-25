@@ -33,7 +33,7 @@ Filter on **content**, not author:
 
 ### 2. Triage
 
-**Hard gate — invisible findings**: if a check is failing but the actual finding list lives in an external dashboard your CLI cannot reach (SonarQube, Snyk, DataDog test reports, etc. — no token, no API endpoint accessible), STOP **immediately** and ask the user to paste the findings. Do **not** reproduce locally and process "guessed" findings as a complete cycle. Do **not** process unrelated feedback first while the invisible finding sits unaddressed. `superpowers:systematic-debugging` assumes you can see the finding — when you can't, this gate fires first.
+**Hard gate — invisible findings**: if a check is failing but the actual finding list lives in an external dashboard your CLI cannot reach (SonarQube, Snyk, DataDog test reports, etc. — no token, no API endpoint accessible), STOP **immediately** and ask the user to paste the findings. Do **not** reproduce locally and process "guessed" findings as a complete cycle. Do **not** process unrelated feedback first while the invisible finding sits unaddressed. Root-cause diagnosis assumes you can see the finding; when you can't, this gate fires first.
 
 **Cross-round dedup** — for each new comment, check the cache from step 1:
 
@@ -46,7 +46,7 @@ Filter on **content**, not author:
 - **Discuss** — ambiguous, possible source misread, design tradeoff, scope unclear → **do NOT reply autonomously, do NOT implement** — collect for user
 - **Out-of-scope** — clearly outside this PR's stated goal → collect for user
 
-**Checks** — for each failing check: pull the failure log via CLI, diagnose root cause (`superpowers:systematic-debugging` — diagnose before fix, per global CLAUDE.md). Distinguish real failure vs flaky; only retry on evidence of flake. If the failure log doesn't contain the actual findings → invisible-findings gate above.
+**Checks** — for each failing check: pull the failure log via CLI, diagnose root cause before attempting a fix (no patch without a named cause). Distinguish real failure vs flaky; only retry on evidence of flake. If the failure log doesn't contain the actual findings → invisible-findings gate above.
 
 ### 3. Address (Valid + real failures only)
 
@@ -265,7 +265,7 @@ Tracking: <if needed, opened followup issue X>
 **When NOT to use**:
 
 - Any of the five fields cannot be filled honestly → finding is real, modify it. Wontfix Template is for the specific case where modification introduces equivalent or worse race surface; it is NOT a generic decline template.
-- **Dev-stage self-review context (no separate session between code author and verdict reasoner)**: do NOT fill these fields from main-session memory. Babysit normally runs in a session separate from the code author, which is what makes Wontfix Template safe to apply — the babysit session has no prior commitment to the design and can honestly reason about damage / recovery / mitigation cost. In a dev-stage self-review loop (same session wrote the code AND is reasoning about findings), author-narrative bias compounds (research: "strong bug-free framing" drops vulnerability detection from 97.2% → 3.6%, Nikiporets et al.). Pause and either (a) hand off to a separate session for the verdict, or (b) use a fresh-spawn verdict subagent that independently derives `damage` / `recovery` / `mitigation cost` from code, not from the finding object's fields. The Deriver-pattern verdict subagent is not built as a skill yet — until it is, treat dev-stage wontfix decisions as advisory and surface them to the user.
+- **Dev-stage self-review context (no separate session between code author and verdict reasoner)**: do NOT fill these fields from main-session memory. Babysit normally runs in a session separate from the code author, which is what makes Wontfix Template safe to apply — the babysit session has no prior commitment to the design and can honestly reason about damage / recovery / mitigation cost. In a dev-stage self-review loop (same session wrote the code AND is reasoning about findings), author-narrative bias compounds — bug-free framing produces the strongest detection drop among framing conditions tested across 6 LLMs (Mitropoulos et al., *Measuring and Exploiting Contextual Bias in LLM-Assisted Security Code Review*, [arXiv:2603.18740](https://arxiv.org/abs/2603.18740)). Pause and either (a) hand off to a separate session for the verdict, or (b) use a fresh-spawn verdict subagent that independently derives `damage` / `recovery` / `mitigation cost` from code, not from the finding object's fields. The Deriver-pattern verdict subagent is not built as a skill yet — until it is, treat dev-stage wontfix decisions as advisory and surface them to the user.
 
 ### 5. Decide
 

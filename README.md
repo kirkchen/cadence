@@ -89,7 +89,7 @@ cadence/
 
 ## Design Notes
 
-- **Author bias is the core constraint.** All three skills are designed around the research finding that "strong bug-free framing" drops vulnerability detection from 97.2% → 3.6% (Nikiporets et al.). The skills are structured so the entity *finding* the issue is never the entity that *wrote* the code.
+- **Author bias is the core constraint.** All three skills are designed around the research finding that framing a diff as "bug-free" produces the strongest detection drop among framing conditions tested across 6 LLMs ([Mitropoulos et al., arXiv:2603.18740](https://arxiv.org/abs/2603.18740)). The skills are structured so the entity *finding* the issue is never the entity that *wrote* the code.
 - **Cross-model + multi-role + main-session-isolation** are three independent mitigations applied where each is the cheapest fix.
 - **`pr-review` has a `mode: local`** for callers (supervisor sessions doing pre-PR critique) that want findings JSON instead of GitHub posts. Same dispatch, different output target.
 

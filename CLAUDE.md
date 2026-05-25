@@ -36,7 +36,7 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 
 ## Design Invariants — Do Not Break These
 
-1. **`pr-review` HARD-GATE**: pr-review refuses to run when called from the same session that authored the diff. Author bias destroys finding precision. If you tweak the gate, read the Nikiporets et al. citation in `pr-review/SKILL.md` and understand the 97.2% → 3.6% collapse first.
+1. **`pr-review` HARD-GATE**: pr-review refuses to run when called from the same session that authored the diff. Author bias destroys finding precision. If you tweak the gate, read [Mitropoulos et al., arXiv:2603.18740](https://arxiv.org/abs/2603.18740) (cited in `pr-review/SKILL.md`) first — bug-free framing produces the strongest detection drop among framing conditions tested across 6 LLMs.
 2. **Subagent dispatch is mandatory** in pr-review — never collapse the 4 role prompts into one prompt. Each role is a *fresh* context with a different mental model. Pooling them defeats the diversity guarantee.
 3. **`self-review` is cross-model**, not Claude-vs-Claude. Calling Claude to grade Claude's own diff is the same bias trap as pr-review's gate.
 4. **`pr-babysit` never auto-merges.** It reports ready-to-merge and stops. Merge is a human decision.
