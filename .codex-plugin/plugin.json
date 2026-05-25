@@ -1,6 +1,6 @@
 {
   "name": "cadence",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "PR review lifecycle plugin: self-review (pre-push) → pr-review (on-PR, 4-role subagent dispatch) → pr-babysit (until merge).",
   "author": {
     "name": "Kirk Chen"
