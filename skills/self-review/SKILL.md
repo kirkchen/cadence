@@ -61,8 +61,8 @@ Mode selection:
 
 ## When NOT to use
 
-- **Live PR review** with sticky comment + inline threads → `/pr-review` (default mode)
-- **PR babysit work after PR is open** → `/pr-babysit` (handles thread reply, dedup, CI gates)
+- **Live PR review** with sticky comment + inline threads → `/cadence:pr-review` (default mode)
+- **PR babysit work after PR is open** → `/cadence:pr-babysit` (handles thread reply, dedup, CI gates)
 - **Working tree has uncommitted changes** — STOP and ask user to commit or stash first. Loop assumes clean working tree at start so per-finding commits are atomic
 - **You want manual verdict control** → use `mode=review-only` and decide yourself
 - **First-time use on a new branch** → consider `mode=review-only` first to see what codex produces before letting it auto-fix
@@ -75,6 +75,11 @@ Run these checks at start. STOP on any failure with the listed message — do NO
 # Codex CLI
 codex --version 2>/dev/null || { echo "STOP: Install codex — npm install -g @openai/codex"; exit 1; }
 codex login --status 2>/dev/null || { echo "STOP: Run 'codex login' to authenticate"; exit 1; }
+
+# Plugin install root — needed so codex can locate the pr-review methodology prompts
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "${CLAUDE_PLUGIN_ROOT}/skills/pr-review" ] || {
+  echo "STOP: CLAUDE_PLUGIN_ROOT must point at cadence's install root (so codex can read ./skills/pr-review/*-prompt.md). Set it explicitly if your harness doesn't export it (e.g. export CLAUDE_PLUGIN_ROOT=~/.claude/plugins/cache/cadence/cadence/<version>)."; exit 1;
+}
 
 # Clean working tree
 git diff --quiet && git diff --cached --quiet || { echo "STOP: Working tree has uncommitted changes. Commit or stash, then re-invoke."; exit 1; }
@@ -367,16 +372,21 @@ claims.
 
 ## Methodology
 
-The review methodology lives in these files in this repo (read them now):
+The review methodology lives in these files (read them now — paths are
+absolute, resolve from the cadence plugin install root):
 
-- .claude/skills/pr-review/security-reviewer-prompt.md
-- .claude/skills/pr-review/staff-engineer-prompt.md
-- .claude/skills/pr-review/sdet-prompt.md
-- .claude/skills/pr-review/spec-auditor-prompt.md
+- ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/security-reviewer-prompt.md
+- ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/staff-engineer-prompt.md
+- ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/sdet-prompt.md
+- ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/spec-auditor-prompt.md
 
 Plus cross-cutting threshold:
 
-- .claude/skills/pr-review/SKILL.md § Finding Inclusion Threshold
+- ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/SKILL.md § Finding Inclusion Threshold
+
+The dispatcher MUST expand `${CLAUDE_PLUGIN_ROOT}` to an absolute path before
+handing the prompt to codex (codex's `read-only` sandbox can read absolute
+paths anywhere on the filesystem, but it cannot resolve env vars itself).
 
 ## Apply, with adaptations
 
@@ -519,7 +529,7 @@ Skipped findings (Mitigation needed design judgment):
 Suggested next steps:
 - Review the atomic commits — revert any you disagree with
 - For surfaced findings: read /tmp/self-review-iter-<N>.md for full context, decide modify/wontfix/defer manually
-- Consider /pr-review mode=local for Claude-side multi-role view + comparison
+- Consider /cadence:pr-review mode=local for Claude-side multi-role view + comparison
 - Push when satisfied
 ═════════════════════════════════════════════════════════════
 ```
@@ -530,7 +540,7 @@ Suggested next steps:
 
 - **Context-mix prevention design**: codex output goes to `/tmp/self-review-iter-$ITER.md` (file, not chat). Main session only parses the JSON summary block into conversation memory. Full finding text accessed by main session via file read when implementing each fix — not auto-injected. This keeps main session's growing conversation lean across iterations.
 
-- **Methodology single-sourced**: codex reads `.claude/skills/pr-review/*-prompt.md` directly. When pr-review prompts update, this skill picks up the new methodology automatically. No keep-in-sync burden between pr-review and self-review.
+- **Methodology single-sourced**: codex reads `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/*-prompt.md` directly (dispatcher expands the env var to an absolute path before handing the prompt to codex). When pr-review prompts update, this skill picks up the new methodology automatically. No keep-in-sync burden between pr-review and self-review.
 
 - **Adaptation layer keep-in-sync**: the "IGNORE these sections" list in the codex prompt mirrors Claude-specific sections in pr-review prompts. If pr-review adds new Claude-only machinery, update the IGNORE list. Annotated as a maintenance concern, not auto-detected.
 
