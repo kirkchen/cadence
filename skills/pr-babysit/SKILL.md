@@ -17,6 +17,34 @@ Babysit a PR/MR until CI is green AND every valid reviewer feedback is addressed
 
 If multiple PRs/MRs match the current branch, stop and ask which one.
 
+## Reply Language
+
+Text posted to PR/MR threads (the `body` of comments published via step 3's reply endpoints, including Wontfix Template replies) MUST match the PR/MR description's primary language. Resolution order:
+
+1. PR/MR description (primary source)
+2. Linked issue body — only when PR description is terse and references an issue
+3. English — fallback when neither has substantive prose
+
+**Fixed regardless of PR language** (machine-readable / cross-locale anchors; reviewers and automation scan for these):
+
+- Conventional commit prefixes (`fix:` / `refactor:` / `chore:` / `docs:`) — git convention
+- Reply-template anchor phrases — `Addressed in <SHA>` / `Deliberate design` / `Same as the earlier <topic> thread` / `Won't fix — premise doesn't hold`
+- Wontfix Template field labels — `Race window:` / `Precondition:` / `Damage if race fires:` / `Recovery path:` / `Asymmetric check:` / `Mitigation cost:` / `Tracking:`, plus the leading line `Wontfix — deliberate trade-off.`
+- Race meta tag (`[window=..., damage=..., recovery=...]`) — same tag parsed by Gate B
+- HTML markers and finding IDs propagated from `pr-review` (`<!-- pr-review:finding-id=... -->`, etc.)
+- P-codes / severity tokens / justification class names — same canonical set as `pr-review`'s [Output Language](../pr-review/SKILL.md#output-language)
+
+**Adaptive** (renders in PR/MR language):
+
+- `<what changed>` content following `Addressed in <SHA> —`
+- `<reason>` content following `Deliberate design —` and `Won't fix — premise doesn't hold.`
+- `<topic>` and other free-form references in `Same as the earlier <...> thread`
+- All prose content inside Wontfix Template fields (the text after each label)
+- Reasoning prose around `file:line` references
+- `<one-liner>` text in step 6's `Addressed (this run)` items when they get echoed back to PR threads
+
+**Terminal / dispatcher output stays English** regardless of PR language: the step 6 run report, Gate A / Gate B convergence-audit messages, the "STOP — invisible findings" prompt. These go to the babysit session (a human reading terminal or an orchestrator), not to the PR.
+
 ## Loop
 
 ### 1. Snapshot
@@ -76,6 +104,8 @@ After posting a reply, `GET` the discussion / review thread back and confirm you
 | Bot premise wrong, won't fix                  | `Won't fix — premise doesn't hold. <evidence: file:line / spec section>.` |
 
 The Deliberate / Won't-fix templates exist to keep tone neutral and evidence-led — without a template these tend to drift into defensive or implementation-dump replies.
+
+The anchor phrases (`Addressed in <SHA>`, `Deliberate design`, `Won't fix — premise doesn't hold`, `Same as the earlier <topic> thread`) stay English regardless of PR language — they are the cross-locale scan markers reviewers look for. Only the prose content following each anchor adapts to the PR description's language. See [Reply Language](#reply-language) for the full rule.
 
 **Lint / warning suppression** — any `#pragma`, `// eslint-disable`, `# noqa`, `@SuppressWarnings`, etc. must include:
 

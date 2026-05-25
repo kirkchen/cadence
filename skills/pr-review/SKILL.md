@@ -463,6 +463,39 @@ Downgrades (step 4 lowering a tier) MUST appear in the `Severity adjustments` se
 - Same issue described differently across subagents → merge into one finding with combined notes
 - Cross-cutting (e.g. staff-eng AND sdet both flag missing test for SQL injection) → keep both, dispatcher cross-references
 
+## Output Language
+
+PR-published prose (sticky narrative, inline comment bodies, spec gap questions, verification notes, table intro lines) MUST match the PR description's primary language. Resolution order:
+
+1. PR description (primary source)
+2. Linked issue body — only when PR description is terse and references an issue
+3. English — fallback when neither has substantive prose
+
+**Fixed regardless of PR language** (machine-readable / cross-locale anchors; automation parses these tokens):
+
+- HTML markers: `<!-- pr-review:sticky -->` / `<!-- pr-review:sha=... -->` / `<!-- pr-review:finding-id=... -->` / `<!-- pr-review:justification=... -->`
+- P-codes (`P0` / `P1` / `P2` / `Q`) and severity label tokens (`Blocker` / `Factual` / `Suggestion` / `Question`)
+- Justification class names (`Reachable` / `Precedent` / `Asymmetric` / `Historical` / `Hygiene`)
+- Category slugs (kebab-case English)
+- Status header wording (`✅ Approved` / `✅ Approved with notes` / `⚠️ Review before merge` / `🔴 Blocking issues found` / `⚠️ Partial — ...`)
+- Section headings (`📋 Currently open` / `📊 Overview by category` / `⚖️ Severity adjustments` / `🔄 Last iteration changes` / `❓ Spec gap questions` / `✅ Checked & clean`)
+- Field labels in inline comments (`Failure mode` / `Mitigation` / `Evidence` / `blast` / `reversible` / `confidence` / `justification`)
+- Table column headers (`Category` / `Files` / `Prior` / `Status` / `#` / `Reason`, etc.)
+- Status anchor phrases in the Last-iteration-changes table (`Likely fixed` / `Still present` / `Untouched` / `Awaiting spec author`)
+- Race-class meta tag (`[window=..., damage=..., recovery=...]`) — parsed by `pr-babysit` Gate B
+
+**Adaptive** (renders in PR description language):
+
+- Sticky shape narrative (one-line block-quote at top)
+- Content of `Failure mode` / `Mitigation` / `Details` (the prose after each label)
+- `Evidence` framing prose — verbatim code lines stay as-is
+- Spec gap question body and closing line
+- Verification notes after `Likely fixed` / `Still present` / `Untouched`
+- `Reason` cell content in the Severity adjustments table
+- Prose intro lines (e.g. the locator text below `📍 Inline comments`)
+
+**Terminal / JSON output stays English** regardless of PR language: `mode=local` JSON, `dry-run` console payloads, the `noop` console message. These are programmatic outputs consumed by callers, not posted to the PR.
+
 ## Output Format
 
 Two artifacts produced post-merge:
@@ -521,14 +554,14 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 **Review: <status>** · <total> finding(s) (<non-zero buckets>) · ✅ <N> clean
 
-> <one-line shape narrative — what's the issue cluster, e.g. "observability + state-consistency 是兩個 P1 集中區、security clean">
+> <one-line shape narrative — what's the issue cluster; render in PR description language. English example: "observability + state-consistency form two P1 clusters; security clean">
 
 ## 📋 Currently open (<N>)
 
 - **<id>** <P-code> `<slug>` — <file>:<line>
 - ...
 
-📍 **Inline comments**: <N> findings 釘在對應 source line（Files changed tab 看）
+📍 **Inline comments**: <N> findings pinned to source lines (see the Files changed tab) — render this locator line in PR description language
 
 ## ⚖️ Severity adjustments
 
@@ -540,7 +573,7 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 <details><summary>📊 Overview by category</summary>
 
-| 類別     |  P0 |  P1 |  P2 |   Q | 影響檔                        |
+| Category |  P0 |  P1 |  P2 |   Q | Files                         |
 | -------- | --: | --: | --: | --: | ----------------------------- |
 | `<slug>` |   N |   N |   N |   N | <file paths, comma-separated> |
 
@@ -661,7 +694,7 @@ Badge colors:
 1. <numbered question>
 2. ...
 
-<closing line — e.g. "不擋 PR；想釐清 X">
+<closing line, in PR description language — e.g. "not blocking the PR; want to clarify X">
 ```
 
 Q findings do **not** become inline comments — they're often cross-file conceptual questions, pinning to a line misleads.
@@ -769,4 +802,5 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Subagent failure must be surfaced** — sticky header carries the partial-mode warning; never silent
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
 - **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
+- **Output language is adaptive** — PR-published prose follows the PR description's language; machine-readable anchors (HTML markers, P-codes, slugs, section headings, field labels, race meta tag) stay English. See [Output Language](#output-language)
 - **Local mode is JSON-only** — no markdown, no sticky, no inline; caller (e.g. a supervisor session) consumes findings JSON and drives its own follow-up loop
