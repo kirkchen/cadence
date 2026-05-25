@@ -4,15 +4,15 @@
     "name": "Kirk Chen"
   },
   "metadata": {
-    "description": "PR review lifecycle plugin for Claude Code"
+    "description": "AI coding lifecycle skills for Claude Code"
   },
   "plugins": [
     {
       "name": "cadence",
       "source": "./",
-      "description": "PR review lifecycle: self-review → pr-review → pr-babysit",
+      "description": "AI coding lifecycle: triage-issue → investigate-issue → self-review → pr-review → pr-babysit",
       "category": "workflow",
-      "tags": ["code-review", "pr-review", "self-review", "ci", "babysit"]
+      "tags": ["ai-coding", "code-review", "pr-review", "self-review", "issue-triage", "babysit"]
     }
   ]
 }
