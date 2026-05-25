@@ -1,0 +1,13 @@
+{
+  "name": "cadence",
+  "version": "0.1.0",
+  "description": "PR review lifecycle plugin: self-review (pre-push) → pr-review (on-PR, 4-role subagent dispatch) → pr-babysit (until merge).",
+  "author": {
+    "name": "Kirk Chen"
+  },
+  "homepage": "https://github.com/kirkchen/cadence",
+  "repository": "https://github.com/kirkchen/cadence",
+  "license": "MIT",
+  "keywords": ["code-review", "pr-review", "self-review", "ci", "workflow"],
+  "skills": "./skills/"
+}

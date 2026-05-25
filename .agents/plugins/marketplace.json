@@ -1,0 +1,20 @@
+{
+  "name": "kirkchen-cadence",
+  "interface": {
+    "displayName": "Cadence (Kirk Chen)"
+  },
+  "plugins": [
+    {
+      "name": "cadence",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cadence"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Engineering"
+    }
+  ]
+}

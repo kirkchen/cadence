@@ -1,0 +1,18 @@
+{
+  "name": "cadence",
+  "owner": {
+    "name": "Kirk Chen"
+  },
+  "metadata": {
+    "description": "PR review lifecycle plugin for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "cadence",
+      "source": "./",
+      "description": "PR review lifecycle: self-review → pr-review → pr-babysit",
+      "category": "workflow",
+      "tags": ["code-review", "pr-review", "self-review", "ci", "babysit"]
+    }
+  ]
+}

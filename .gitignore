@@ -1,0 +1,8 @@
+# Claude Code local settings
+.claude/
+
+# OS files
+.DS_Store
+
+# Node
+node_modules/
