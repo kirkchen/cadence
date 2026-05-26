@@ -465,36 +465,11 @@ Downgrades (step 4 lowering a tier) MUST appear in the `Severity adjustments` se
 
 ## Output Language
 
-PR-published prose (sticky narrative, inline comment bodies, spec gap questions, verification notes, table intro lines) MUST match the PR description's primary language. Resolution order:
+PR-published prose (sticky shape narrative, `Failure mode` / `Mitigation` / `Details` content, spec gap question body, verification notes, framing text around code refs) renders in the PR description's primary language. Everything else — markers, section titles, field labels, kebab-case slugs, P-codes, severity / justification / status tokens, the race meta tag — stays English.
 
-1. PR description (primary source)
-2. Linked issue body — only when PR description is terse and references an issue
-3. English — fallback when neither has substantive prose
+Fallback when the PR description lacks substantive prose: linked issue body, then English.
 
-**Fixed regardless of PR language** (machine-readable / cross-locale anchors; automation parses these tokens):
-
-- HTML markers: `<!-- pr-review:sticky -->` / `<!-- pr-review:sha=... -->` / `<!-- pr-review:finding-id=... -->` / `<!-- pr-review:justification=... -->`
-- P-codes (`P0` / `P1` / `P2` / `Q`) and severity label tokens (`Blocker` / `Factual` / `Suggestion` / `Question`)
-- Justification class names (`Reachable` / `Precedent` / `Asymmetric` / `Historical` / `Hygiene`)
-- Category slugs (kebab-case English)
-- Status header wording (`✅ Approved` / `✅ Approved with notes` / `⚠️ Review before merge` / `🔴 Blocking issues found` / `⚠️ Partial — ...`)
-- Section headings (`📋 Currently open` / `📊 Overview by category` / `⚖️ Severity adjustments` / `🔄 Last iteration changes` / `❓ Spec gap questions` / `✅ Checked & clean`)
-- Field labels in inline comments (`Failure mode` / `Mitigation` / `Evidence` / `blast` / `reversible` / `confidence` / `justification`)
-- Table column headers (`Category` / `Files` / `Prior` / `Status` / `#` / `Reason`, etc.)
-- Status anchor phrases in the Last-iteration-changes table (`Likely fixed` / `Still present` / `Untouched` / `Awaiting spec author`)
-- Race-class meta tag (`[window=..., damage=..., recovery=...]`) — parsed by `pr-babysit` Gate B
-
-**Adaptive** (renders in PR description language):
-
-- Sticky shape narrative (one-line block-quote at top)
-- Content of `Failure mode` / `Mitigation` / `Details` (the prose after each label)
-- `Evidence` framing prose — verbatim code lines stay as-is
-- Spec gap question body and closing line
-- Verification notes after `Likely fixed` / `Still present` / `Untouched`
-- `Reason` cell content in the Severity adjustments table
-- Prose intro lines (e.g. the locator text below `📍 Inline comments`)
-
-**Terminal / JSON output stays English** regardless of PR language: `mode=local` JSON, `dry-run` console payloads, the `noop` console message. These are programmatic outputs consumed by callers, not posted to the PR.
+Terminal / JSON output (`mode=local` JSON, dry-run console, noop message) stays English regardless of PR language — those go to callers, not the PR.
 
 ## Output Format
 
@@ -802,5 +777,5 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Subagent failure must be surfaced** — sticky header carries the partial-mode warning; never silent
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
 - **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
-- **Output language is adaptive** — PR-published prose follows the PR description's language; machine-readable anchors (HTML markers, P-codes, slugs, section headings, field labels, race meta tag) stay English. See [Output Language](#output-language)
+- **Output language is adaptive** — PR-published prose follows the PR description's language; markers / titles / field labels / keywords / terms stay English. See [Output Language](#output-language)
 - **Local mode is JSON-only** — no markdown, no sticky, no inline; caller (e.g. a supervisor session) consumes findings JSON and drives its own follow-up loop
