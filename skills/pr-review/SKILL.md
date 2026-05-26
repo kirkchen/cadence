@@ -463,6 +463,14 @@ Downgrades (step 4 lowering a tier) MUST appear in the `Severity adjustments` se
 - Same issue described differently across subagents → merge into one finding with combined notes
 - Cross-cutting (e.g. staff-eng AND sdet both flag missing test for SQL injection) → keep both, dispatcher cross-references
 
+## Output Language
+
+PR-published prose (sticky shape narrative, `Failure mode` / `Mitigation` / `Details` content, spec gap question body, verification notes, framing text around code refs) renders in the PR description's primary language. Everything else — markers, section titles, field labels, kebab-case slugs, P-codes, severity / justification / status tokens, the race meta tag — stays English.
+
+Fallback when the PR description lacks substantive prose: linked issue body, then English.
+
+Terminal / JSON output (`mode=local` JSON, dry-run console, noop message) stays English regardless of PR language — those go to callers, not the PR.
+
 ## Output Format
 
 Two artifacts produced post-merge:
@@ -521,14 +529,14 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 **Review: <status>** · <total> finding(s) (<non-zero buckets>) · ✅ <N> clean
 
-> <one-line shape narrative — what's the issue cluster, e.g. "observability + state-consistency 是兩個 P1 集中區、security clean">
+> <one-line shape narrative — what's the issue cluster; render in PR description language. English example: "observability + state-consistency form two P1 clusters; security clean">
 
 ## 📋 Currently open (<N>)
 
 - **<id>** <P-code> `<slug>` — <file>:<line>
 - ...
 
-📍 **Inline comments**: <N> findings 釘在對應 source line（Files changed tab 看）
+📍 **Inline comments**: <N> findings pinned to source lines (see the Files changed tab) — render this locator line in PR description language
 
 ## ⚖️ Severity adjustments
 
@@ -540,7 +548,7 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 <details><summary>📊 Overview by category</summary>
 
-| 類別     |  P0 |  P1 |  P2 |   Q | 影響檔                        |
+| Category |  P0 |  P1 |  P2 |   Q | Files                         |
 | -------- | --: | --: | --: | --: | ----------------------------- |
 | `<slug>` |   N |   N |   N |   N | <file paths, comma-separated> |
 
@@ -661,7 +669,7 @@ Badge colors:
 1. <numbered question>
 2. ...
 
-<closing line — e.g. "不擋 PR；想釐清 X">
+<closing line, in PR description language — e.g. "not blocking the PR; want to clarify X">
 ```
 
 Q findings do **not** become inline comments — they're often cross-file conceptual questions, pinning to a line misleads.
@@ -769,4 +777,5 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Subagent failure must be surfaced** — sticky header carries the partial-mode warning; never silent
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
 - **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
+- **Output language is adaptive** — PR-published prose follows the PR description's language; markers / titles / field labels / keywords / terms stay English. See [Output Language](#output-language)
 - **Local mode is JSON-only** — no markdown, no sticky, no inline; caller (e.g. a supervisor session) consumes findings JSON and drives its own follow-up loop

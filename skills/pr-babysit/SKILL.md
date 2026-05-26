@@ -17,6 +17,14 @@ Babysit a PR/MR until CI is green AND every valid reviewer feedback is addressed
 
 If multiple PRs/MRs match the current branch, stop and ask which one.
 
+## Reply Language
+
+Reply prose posted to PR/MR threads — the `<what changed>` / `<reason>` / `<evidence>` content following each reply-template anchor, plus the prose inside Wontfix Template fields — renders in the PR/MR description's primary language. Everything else stays English: the anchor phrases themselves, Wontfix Template field labels, conventional commit prefixes, the race meta tag, P-codes / severity / justification tokens (same canonical set as `pr-review`'s [Output Language](../pr-review/SKILL.md#output-language)).
+
+Fallback when the PR description lacks substantive prose: linked issue body, then English.
+
+Terminal output (step 6 run report, Gate A / Gate B audit messages, invisible-findings prompt) stays English — those go to the dispatcher session, not the PR.
+
 ## Loop
 
 ### 1. Snapshot
@@ -76,6 +84,8 @@ After posting a reply, `GET` the discussion / review thread back and confirm you
 | Bot premise wrong, won't fix                  | `Won't fix — premise doesn't hold. <evidence: file:line / spec section>.` |
 
 The Deliberate / Won't-fix templates exist to keep tone neutral and evidence-led — without a template these tend to drift into defensive or implementation-dump replies.
+
+Anchor phrases stay English; only the prose after each anchor adapts to the PR description's language. See [Reply Language](#reply-language).
 
 **Lint / warning suppression** — any `#pragma`, `// eslint-disable`, `# noqa`, `@SuppressWarnings`, etc. must include:
 
