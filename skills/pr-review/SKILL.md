@@ -264,7 +264,7 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
   "summary_line": "<same wording as sticky summary line>",
   "findings": [
     {
-      "id": "#1",
+      "id": "F1",
       "p_code": "P0 | P1 | P2 | Q",
       "severity_emoji": "🚨 | ⚠️ | 💡 | ❓",
       "slug": "kebab-case-slug",
@@ -284,7 +284,7 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
   ],
   "spec_gaps": [
     {
-      "id": "#7",
+      "id": "F7",
       "section": "spec section or decision id",
       "title": "one-line",
       "spec_quote": "verbatim",
@@ -294,7 +294,7 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
   ],
   "prior_verifications": [
     {
-      "prior_id": "#1",
+      "prior_id": "F1",
       "verification": "yes | unclear | no",
       "note": "what evidence"
     }
@@ -590,7 +590,7 @@ Rules:
 
 | #    | Category | Adjustment                                         | Reason              |
 | ---- | -------- | -------------------------------------------------- | ------------------- |
-| #<n> | `<slug>` | <original-emoji + P-code> → <final-emoji + P-code> | <reason — one line> |
+| F<n> | `<slug>` | <original-emoji + P-code> → <final-emoji + P-code> | <reason — one line> |
 ```
 
 ### Last iteration changes section (incremental only)
@@ -600,10 +600,10 @@ Rules:
 
 | Prior                                | Status                                        |
 | ------------------------------------ | --------------------------------------------- |
-| #<n> <P-code> <slug> (<file>:<line>) | ✅ Likely fixed `<sha>` — <verification note> |
-| #<n> <P-code> <slug> (<file>:<line>) | 🔄 Still present — <note>                     |
-| #<n> <P-code> <slug> (<file>:<line>) | ⏸️ Untouched — <note>                         |
-| #<n> Q <slug>                        | ⏸️ Awaiting spec author                       |
+| F<n> <P-code> <slug> (<file>:<line>) | ✅ Likely fixed `<sha>` — <verification note> |
+| F<n> <P-code> <slug> (<file>:<line>) | 🔄 Still present — <note>                     |
+| F<n> <P-code> <slug> (<file>:<line>) | ⏸️ Untouched — <note>                         |
+| F<n> Q <slug>                        | ⏸️ Awaiting spec author                       |
 ```
 
 Scope: **only findings whose status changed (or was re-confirmed) in this iteration's `<last_sha>..<HEAD>` diff**. Untouched findings carrying over from before `<last_sha>` belong in `📋 Currently open`, not here. The table is the delta, not the inventory.
@@ -635,7 +635,7 @@ One per P0 / P1 / P2 finding. Posted via GitHub Review API (single review, `even
 
 <sub>blast: <Local|Module|Cross-service|Data layer> · <reversible|not reversible> · confidence: <high|medium|low> · justification: <Reachable|Precedent|Asymmetric|Historical></sub>
 
-<!-- pr-review:finding-id=#<n> -->
+<!-- pr-review:finding-id=F<n> -->
 <!-- pr-review:justification=<Reachable|Precedent|Asymmetric|Historical|Hygiene> -->
 ````
 
@@ -656,7 +656,7 @@ Badge colors:
 ### Spec gap questions (in sticky `<details>`)
 
 ```markdown
-### ❓ #<n> <spec-section-or-decision-id> — <one-line title>
+### ❓ F<n> <spec-section-or-decision-id> — <one-line title>
 
 `<Blast>` · spec-author confirm
 
@@ -775,6 +775,7 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Don't auto-grep for spec location** — use only what the user provides
 - **Subagent reports are advisory** — dispatcher applies merge rule and dedup, not subagents
 - **Subagent failure must be surfaced** — sticky header carries the partial-mode warning; never silent
+- **Finding IDs are `F`-prefixed, never `#`-prefixed** (`F1`, `F2`, …) — GitHub auto-links a bare `#<digits>` in a comment to the issue/PR of that number, so a finding labelled `#7` renders in the sticky as a link to issue #7 (an unrelated issue that merely shares the number). The `F` prefix sidesteps the collision entirely
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
 - **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
 - **Output language is adaptive** — PR-published prose follows the PR description's language; markers / titles / field labels / keywords / terms stay English. See [Output Language](#output-language)
