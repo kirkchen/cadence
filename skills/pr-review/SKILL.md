@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Use when reviewing a PR/MR diff and producing a structured finding list — covers security, logic, performance, cross-file impact, test coverage, and spec compliance. Posts a sticky summary comment plus inline review comments to the PR. NOT for writing PR descriptions, design reviews requiring business judgment, or deep CVE/supply-chain audits.
+description: Use when reviewing a PR/MR diff for security, logic, performance, cross-file impact, test coverage, or spec compliance findings. NOT for writing PR descriptions, design reviews requiring business judgment, implementation work, release notes, or deep CVE/supply-chain audits.
 ---
 
 # PR Review
