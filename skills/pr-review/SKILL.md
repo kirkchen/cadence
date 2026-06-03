@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Use when reviewing a PR/MR diff and producing a structured finding list — covers security, logic, performance, cross-file impact, test coverage, and spec compliance. Posts a sticky summary comment plus inline review comments to the PR. NOT for writing PR descriptions, design reviews requiring business judgment, or deep CVE/supply-chain audits.
+description: Use when reviewing a PR/MR diff for security, logic, performance, cross-file impact, test coverage, or spec compliance findings. NOT for writing PR descriptions, design reviews requiring business judgment, implementation work, release notes, or deep CVE/supply-chain audits.
 ---
 
 # PR Review
@@ -158,6 +158,17 @@ Missing → sdet uses heuristic from diff nature.
 
 Context can adjust severity at merge time (see Severity Merge Rule).
 
+**`repo rules`** — compact repo-specific review constraints sourced from committed project files, not from conversation memory. Use this when a repo has hard invariants, ADRs, testing conventions, glossary terms, module READMEs, or accepted design trade-offs that reviewers must respect.
+
+Examples:
+
+- "ADR-0016: Slack is single-workspace; do not require workspace isolation in this PR."
+- "DB migrations are forward-only expand/contract; migration SQL must have artifact-backed coverage."
+- "E2E step definitions must not use networkidle or raw sleeps."
+- "MCP default-all is a UI default, not a server-side create contract."
+
+Repo rules are review inputs, not output metadata. Do **not** add a "rules source" / "review inputs" section to the sticky.
+
 ## Mode Detection
 
 Resolve before dispatch. The mode controls diff scope and output sections.
@@ -259,9 +270,11 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
   "base": "origin/main",
   "head": "<HEAD sha>",
   "last_sha": "<sha or null>",
-  "status": "blocking | review-before-merge | approved-with-notes | approved | noop | partial-failure",
+  "status": "PASSED | PASSED_WITH_NOTES | REVIEW_BEFORE_MERGE | BLOCKED | PARTIAL | NOOP",
+  "status_heading": "✅ pr-review: PASSED | 🟡 pr-review: PASSED WITH NOTES | 🟠 pr-review: REVIEW BEFORE MERGE | 🔴 pr-review: BLOCKED | ⚠️ pr-review: PARTIAL",
+  "open_counts": { "P0": 0, "P1": 0, "P2": 0, "Q": 0 },
   "subagent_failures": [],
-  "summary_line": "<same wording as sticky summary line>",
+  "next_action": "<one-line or null>",
   "findings": [
     {
       "id": "F1",
@@ -279,8 +292,13 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
       "mitigation": "one-line",
       "evidence": "verbatim diff line(s)",
       "details": "optional multi-line",
+      "disposition": "open | likely_fixed | still_present | follow_up | wontfix | by_design",
+      "accepted_exception": null | { "kind": "follow_up | wontfix | by_design", "reason": "...", "issue": "#123 or null" },
       "severity_adjustment": null | { "from": "💡 P2", "to": "⚠️ P1", "reason": "..." }
     }
+  ],
+  "accepted_exceptions": [
+    { "finding_id": "F2", "kind": "follow_up | wontfix | by_design", "reason": "one-line", "issue": "#123 or null" }
   ],
   "spec_gaps": [
     {
@@ -336,6 +354,24 @@ Compute before dispatch:
 | `has_repo`   | true    | repo access available (grep / index / LSP)                        | enable cross-file checks |
 | `is_trivial` | false   | <50 LOC AND (docs-only OR pure rename OR pure type-only)          | skip staff-engineer      |
 
+## Context Hydration
+
+Before dispatch, build a compact context pack from durable inputs. This reduces false positives from reviewers missing accepted scope or repo rules, while preserving subagent isolation from conversation history.
+
+Allowed sources:
+
+- PR body sections: goal, scope boundary, explicitly out of scope, validation, alternatives, accepted follow-ups
+- User-provided `spec`, `context`, `test direction`, and `repo rules`
+- Beat change artifacts or ADRs explicitly linked in the PR body or user-provided spec/context
+- Module README / repo instruction files selected by changed paths when the caller provides them as `repo rules`
+
+Do not include:
+
+- Chat history, author explanations not recorded in durable artifacts, or ad hoc "the author probably meant" assumptions
+- A sticky-visible "rules source" section. Context hydration is an input discipline, not PR output.
+
+Subagents receive the compact context pack, but still emit findings only with quoted diff/spec evidence. Dispatcher uses the same pack for severity calibration, accepted-exception handling, and P0 conservatism.
+
 ## Dispatch
 
 Default dispatch (4 subagents in parallel via a single message):
@@ -352,12 +388,13 @@ Each subagent receives:
 - Diff (full in `full` mode; `<last_sha>..HEAD` in `incremental` mode)
 - Capability flags (has_spec, has_repo, is_trivial)
 - Mode (`full` / `incremental`)
-- Their relevant inputs only (spec content for spec-auditor, test direction for sdet)
+- Compact context pack from [Context Hydration](#context-hydration)
+- Role-specific inputs only where applicable (spec content for spec-auditor, test direction for sdet)
 - In `incremental` mode (dispatcher MUST provide all three):
   - Prior findings JSON (subagent's own category scope only)
   - Prior `Checked & clean` slugs for drift spot-check
   - **`prior_fix_range`**: `<first-fix-sha>^..<last-fix-sha>` — git range covering the commits that addressed iter (N-1) findings. Subagent uses this to apply drop signal (B) self-introduced surface. In single-commit-per-iter cases this collapses to `<last_sha>..HEAD`. If the dispatcher cannot determine the range (e.g. force-push, squash-merge of iter N-1 commits) → fall back to `full` mode and announce in sticky; do NOT invoke incremental mode without `prior_fix_range`
-- NO conversation history, NO session context, NO prior subagent findings from this run
+- NO conversation history, NO session context, NO prior subagent findings from this run. Repo rules inside the compact context pack are allowed because they come from durable project artifacts or explicit invocation inputs.
 
 **Threshold inlining**: the [Finding Inclusion Threshold](#finding-inclusion-threshold) is inlined directly in each subagent prompt (`security-reviewer-prompt.md` / `staff-engineer-prompt.md` / `sdet-prompt.md` / `spec-auditor-prompt.md`). Dispatcher does NOT need to prepend threshold text — subagents apply it from their baked-in section. This avoids relying on dispatcher's "good behavior" to inject the gate on every invocation.
 
@@ -441,10 +478,11 @@ Apply in fixed order to each finding. Lower number wins on conflict.
 
 1. **Base severity** — assigned by subagent at finding emission (emoji form)
 2. **Confidence demote** — `confidence: low` → demote to ❓ Question (terminal, no further escalation)
-3. **Blast escalate** — `blast: cross-service` or `blast: data-layer` → escalate one level (max 🚨 Blocker). Skipped if step 2 already demoted.
-4. **Context adjust** — overrides from context input (e.g. "CDE service: security cannot downgrade") applied last
-5. **Final severity** — result after all four steps
-6. **Map to P-code** for output (dispatcher does this; subagents emit emoji severity only):
+3. **Blast attention** — `blast: cross-service` or `blast: data-layer` raises review attention and can escalate P2→P1 when the failure is factual. It does **not** automatically escalate to 🚨 Blocker.
+4. **P0 calibration** — final 🚨 / P0 requires the [P0 calibration](#p0-calibration) test: reachable now, severe/concrete, and must be handled in this PR.
+5. **Context adjust** — overrides from context input, repo rules, accepted scope, or explicit design trade-offs applied last. Accepted follow-up / wontfix / by-design dispositions remove the finding from open blockers.
+6. **Final severity** — result after all steps
+7. **Map to P-code** for output (dispatcher does this; subagents emit emoji severity only):
 
 | Emoji         | P-code | Label                        |
 | ------------- | ------ | ---------------------------- |
@@ -455,7 +493,7 @@ Apply in fixed order to each finding. Lower number wins on conflict.
 
 Severity ordering (for sort): P0 > P1 > P2. Q is orthogonal.
 
-Downgrades (step 4 lowering a tier) MUST appear in the `Severity adjustments` section. Never silent. Never collapsed behind `<details>` — render as plain section when any adjustment exists.
+Downgrades (step 5 lowering a tier) MUST appear in the `Severity adjustments` section. Never silent. Never collapsed behind `<details>` — render as plain section when any adjustment exists.
 
 ## Dedup (between subagent findings)
 
@@ -473,39 +511,80 @@ Terminal / JSON output (`mode=local` JSON, dry-run console, noop message) stays 
 
 ## Output Format
 
-Two artifacts produced post-merge:
+After subagent findings are merged, deduped, and severity-calibrated, produce three artifacts:
 
-1. **Sticky comment** — single issue comment on the PR; updated in place across iterations (PATCH same comment id)
-2. **Inline review comments** — one GitHub review submission (`event=COMMENT`) containing one comment per P0 / P1 / P2 finding; Q findings stay in the sticky
+1. **Sticky comment** — single issue comment on the PR; updated in place across iterations (PATCH same comment id). This is the canonical review summary.
+2. **Commit status** — GitHub commit status with context `pr-review`, visible in the PR header / Checks area. Its `target_url` links to the sticky comment.
+3. **Inline review comments** — one GitHub review submission (`event=COMMENT`) containing one root comment per P0 / P1 / P2 finding emitted in this iteration. Q findings stay in the sticky.
 
-Status tier (drives sticky header wording, NOT the actual GitHub review event):
+Status tier (drives sticky heading and commit status, NOT the actual GitHub review event):
 
-| Condition           | Wording                                        |
-| ------------------- | ---------------------------------------------- |
-| Any P0              | `🔴 Blocking issues found`                     |
-| No P0, any P1       | `⚠️ Review before merge`                       |
-| Only P2 / Q         | `✅ Approved with notes`                       |
-| Zero findings       | `✅ Approved`                                  |
-| Any subagent failed | prepend `⚠️ Partial — <details>` to the status |
+| Condition                                    | Sticky heading                         | Commit status |
+| -------------------------------------------- | -------------------------------------- | ------------- |
+| Any subagent failed                          | `⚠️ pr-review: PARTIAL`                | `failure`     |
+| Any unaccepted P0                            | `🔴 pr-review: BLOCKED`                | `failure`     |
+| No unaccepted P0, any unaccepted P1          | `🟠 pr-review: REVIEW BEFORE MERGE`    | `failure`     |
+| Only unaccepted P2 / Q                       | `🟡 pr-review: PASSED WITH NOTES`      | `success`     |
+| Zero unaccepted findings                     | `✅ pr-review: PASSED`                 | `success`     |
+| Zero unaccepted findings + accepted exception | `🟡 pr-review: PASSED WITH NOTES`      | `success`     |
 
-The skill **does not** submit `APPROVE` or `REQUEST_CHANGES` reviews. Status wording lives inside the sticky comment only. Auto-approve / auto-merge is forbidden.
+Accepted exceptions (`follow-up`, `wontfix`, `by-design`) do not count as open blockers after they are explicitly recorded in the sticky. The sticky status MUST be recalculated after every incremental review from current unaccepted findings plus accepted exceptions; never leave `BLOCKED` / `REVIEW BEFORE MERGE` visible after all P0/P1 findings have been accepted or verified likely fixed.
+
+The skill **does not** submit `APPROVE` or `REQUEST_CHANGES` reviews. Status wording lives inside the sticky comment and commit status only. Auto-approve / auto-merge is forbidden.
+
+### P0 calibration
+
+Final P0 is reserved for findings that are all three:
+
+1. **Reachable now** — current code path can produce the failure mode.
+2. **Severe and concrete** — failure causes security breach, data loss/integrity break, unrecoverable workflow break, or equivalent critical impact.
+3. **Must be handled in this PR** — not already an accepted out-of-scope item, follow-up, or design trade-off.
+
+`Cross-service` or `Data layer` blast may escalate severity only when the three P0 conditions hold. Otherwise prefer P1 for factual defects, P2 for optional hardening, or Q for spec/design decisions. Downgrades caused by accepted scope or design context must be visible in `Accepted exceptions` or `Severity adjustments`.
 
 ### Summary line (top of sticky)
 
-Show only non-zero P-buckets + total + clean count. Zero suppression keeps the line scannable; incremental drift is communicated via the `Changes since last review` table, not by comparing zero counts.
+The first visible line of the sticky is always the status heading. Do not prepend bot attribution such as `Automated review by pr-review skill`. The reader should know pass/fail before reading details.
 
 ```
-**Review: <status>** · <total> finding(s) (<P0×N, P1×N, P2×N, Q×N — only non-zero>) · ✅ <N> clean
+## <status-heading>
+
+**Open**: <none | P0×N, P1×N, P2×N, Q×N — only non-zero> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
+**Checked**: ✅ <N> clean
+**Next action**: <one-line: optional for PASSED, required otherwise>
 ```
 
 Examples:
 
 ```
-**Review: ✅ Approved** · 0 findings · ✅ 11 clean
-**Review: ✅ Approved with notes** · 1 finding (P2×1) · ✅ 11 clean
-**Review: ⚠️ Review before merge** · 6 findings (P1×2, P2×3, Q×1) · ✅ 11 clean
-**Review: 🔴 Blocking issues found** · 3 findings (P0×1, P1×2) · ✅ 11 clean
-**Review: ⚠️ Partial — security-reviewer failed · ⚠️ Review before merge** · 2 findings (P1×2)
+## ✅ pr-review: PASSED
+
+**Open**: none · **Reviewed HEAD**: `abc1234` · **Mode**: full
+**Checked**: ✅ 11 clean
+
+## 🟡 pr-review: PASSED WITH NOTES
+
+**Open**: P2×1, Q×1 · **Reviewed HEAD**: `abc1234` · **Mode**: full
+**Checked**: ✅ 11 clean
+**Next action**: optional; no blocker
+
+## 🟠 pr-review: REVIEW BEFORE MERGE
+
+**Open**: P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: incremental
+**Checked**: ✅ 11 clean
+**Next action**: fix F2/F4 or explicitly defer
+
+## 🔴 pr-review: BLOCKED
+
+**Open**: P0×1, P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: incremental
+**Checked**: ✅ 11 clean
+**Next action**: fix F1 before merge
+
+## ⚠️ pr-review: PARTIAL
+
+**Open**: P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: full
+**Checked**: ✅ 8 clean
+**Next action**: rerun review; security-reviewer failed
 ```
 
 ### Category slugs
@@ -523,17 +602,26 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 ```markdown
 <!-- pr-review:sticky -->
+<!-- pr-review:version=2 -->
 <!-- pr-review:sha=<HEAD> -->
+<!-- pr-review:status=<PASSED|PASSED_WITH_NOTES|REVIEW_BEFORE_MERGE|BLOCKED|PARTIAL> -->
 
-> 🤖 Automated review by `pr-review` skill
+## <status-heading>
 
-**Review: <status>** · <total> finding(s) (<non-zero buckets>) · ✅ <N> clean
+**Open**: <none | non-zero buckets> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
+**Checked**: ✅ <N> clean
+**Next action**: <one-line: optional only when PASSED>
 
 > <one-line shape narrative — what's the issue cluster; render in PR description language. English example: "observability + state-consistency form two P1 clusters; security clean">
 
 ## 📋 Currently open (<N>)
 
 - **<id>** <P-code> `<slug>` — <file>:<line>
+- ...
+
+## ↪ Accepted exceptions (<N>)
+
+- **<id>** <P-code> `<slug>` — <follow-up #N | wontfix | by-design>: <one-line reason>
 - ...
 
 📍 **Inline comments**: <N> findings pinned to source lines (see the Files changed tab) — render this locator line in PR description language
@@ -569,13 +657,17 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 ---
 
-🤖 `pr-review` skill · reviewed `<base>..<HEAD>`<· last reviewed `<last_sha>` — incremental only>
+`pr-review` · reviewed `<base>..<HEAD>`<· last reviewed `<last_sha>` — incremental only>
 ```
 
 Rules:
 
+- The first visible line MUST be the status heading. Do not render bot attribution before it.
+- `Open` counts only unaccepted findings. Accepted exceptions appear in their own section and do not block `PASSED WITH NOTES`.
+- `Next action` is mandatory for `PARTIAL`, `BLOCKED`, `REVIEW BEFORE MERGE`, and `PASSED WITH NOTES`; omit only for clean `PASSED`.
 - Shape narrative mandatory when ≥2 findings; optional for 0-1
 - `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed`; one bullet per finding, sorted P0→P1→P2→Q then by file path. Omit the section entirely when all findings are closed (avoid empty heading)
+- `↪ Accepted exceptions` rendered **flat** when any finding is explicitly closed as follow-up / wontfix / by-design. Omit when empty.
 - `📊 Overview by category` always in `<details>` (collapsed); rows omitted where P0/P1/P2/Q are all zero. Collapsed by default — summary line already conveys totals; the table is for drill-down only
 - `📍 Inline comments` line shown when ≥1 P0/P1/P2 finding posted inline; omit otherwise
 - `Severity adjustments` rendered **flat** (no `<details>`) when any adjustment exists — discipline requirement, never silent
@@ -603,6 +695,9 @@ Rules:
 | F<n> <P-code> <slug> (<file>:<line>) | ✅ Likely fixed `<sha>` — <verification note> |
 | F<n> <P-code> <slug> (<file>:<line>) | 🔄 Still present — <note>                     |
 | F<n> <P-code> <slug> (<file>:<line>) | ⏸️ Untouched — <note>                         |
+| F<n> <P-code> <slug> (<file>:<line>) | ↪ Follow-up #<N> — <accepted reason>          |
+| F<n> <P-code> <slug> (<file>:<line>) | 🚫 Wontfix — <accepted reason>                |
+| F<n> <P-code> <slug> (<file>:<line>) | 🧭 By-design — <accepted reason>              |
 | F<n> Q <slug>                        | ⏸️ Awaiting spec author                       |
 ```
 
@@ -613,13 +708,29 @@ Status legend (hedged on purpose — line-moved ≠ behaviour-fixed):
 - `✅ Likely fixed <sha>` — subagent emitted `verification: yes` + note explaining what changed
 - `🔄 Still present` — subagent emitted `verification: no` + note pointing to remaining evidence
 - `⏸️ Untouched` — subagent emitted `verification: unclear` (file segment not in diff)
+- `↪ Follow-up #<N>` — human / babysit disposition accepted a follow-up issue instead of fixing in this PR
+- `🚫 Wontfix` — human / babysit disposition accepted that the finding will not be fixed in this PR
+- `🧭 By-design` — human / babysit disposition accepted that the finding's premise conflicts with a repo rule, ADR, spec, or explicit PR design decision
+
+Follow-up / wontfix / by-design rows MUST also appear under `↪ Accepted exceptions`, and MUST be excluded from `📋 Currently open`.
 
 ### Inline comment body template
 
-One per P0 / P1 / P2 finding. Posted via GitHub Review API (single review, `event=COMMENT`).
+One per P0 / P1 / P2 finding emitted in this iteration. Posted via GitHub Review API (single review, `event=COMMENT`). Opening a new root comment for the same finding in a later iteration is allowed, but the root MUST keep the same `F<n>` finding ID, use this template, link to the sticky, and link to the previous thread when known.
 
 ````markdown
-**![<P-code>](https://img.shields.io/badge/<P-code>-<color>) <slug>**
+<!-- pr-review:finding-root -->
+<!-- pr-review:finding-id=F<n> -->
+<!-- pr-review:status=<open|still_present|likely_fixed|follow_up|wontfix|by_design> -->
+<!-- pr-review:head=<HEAD> -->
+<!-- pr-review:sticky-url=<sticky-comment-url> -->
+<!-- pr-review:previous-thread-url=<url-or-none> -->
+
+**F<n> <P-code> `<slug>`** · <status-label>
+
+**Sticky summary**: <sticky-comment-url>
+**Iteration**: `<last_sha>..<HEAD>`<br>
+**Previous thread**: <url — omit when none>
 
 **Failure mode**: <one-line>
 
@@ -635,17 +746,19 @@ One per P0 / P1 / P2 finding. Posted via GitHub Review API (single review, `even
 
 <sub>blast: <Local|Module|Cross-service|Data layer> · <reversible|not reversible> · confidence: <high|medium|low> · justification: <Reachable|Precedent|Asymmetric|Historical></sub>
 
-<!-- pr-review:finding-id=F<n> -->
 <!-- pr-review:justification=<Reachable|Precedent|Asymmetric|Historical|Hygiene> -->
 ````
 
-The `justification` HTML marker is consumed by `pr-babysit`'s diminishing-returns gate to decide whether to keep looping or hand back to the user. `Hygiene` value is reserved for batched Q-class hygiene followups; never emit `Hygiene` on a P0/P1/P2 finding.
+The root markers are consumed by `pr-babysit` and by later incremental reviews. The `justification` HTML marker is consumed by `pr-babysit`'s diminishing-returns gate to decide whether to keep looping or hand back to the user. `Hygiene` value is reserved for batched Q-class hygiene followups; never emit `Hygiene` on a P0/P1/P2 finding.
 
-Badge colors:
+Status label values:
 
-- `P0` → `red`
-- `P1` → `orange`
-- `P2` → `yellow`
+- `🆕 New`
+- `🔄 Still present`
+- `✅ Likely fixed`
+- `↪ Follow-up`
+- `🚫 Wontfix`
+- `🧭 By-design`
 
 `reversible` derivation:
 
@@ -687,29 +800,36 @@ Q findings do **not** become inline comments — they're often cross-file concep
 
 ## Publishing
 
-Runs after merge step. Skipped entirely when `dry-run: true` (print sticky + inline payloads to console instead) **or** when `mode: local` (emit findings JSON to stdout — see [Local Mode](#local-mode)).
+Runs after the findings merge/dedup step. Skipped entirely when `dry-run: true` (print sticky + inline payloads to console instead) **or** when `mode: local` (emit findings JSON to stdout — see [Local Mode](#local-mode)).
 
 ```dot
 digraph publish {
   "Findings merged" [shape=doublecircle];
   "Build sticky body" [shape=box];
-  "Build inline payload" [shape=box];
+  "Build inline payload template" [shape=box];
   "Find sticky comment" [shape=box];
   "Found?" [shape=diamond];
   "PATCH sticky body" [shape=box];
   "POST new sticky" [shape=box];
+  "Capture sticky URL" [shape=box];
+  "Publish commit status" [shape=box];
+  "Fill sticky URL in inline roots" [shape=box];
   "POST review with inline comments" [shape=box];
   "Done" [shape=doublecircle];
 
   "Findings merged" -> "Build sticky body";
-  "Findings merged" -> "Build inline payload";
+  "Findings merged" -> "Build inline payload template";
   "Build sticky body" -> "Find sticky comment";
   "Find sticky comment" -> "Found?";
   "Found?" -> "PATCH sticky body" [label="yes"];
   "Found?" -> "POST new sticky" [label="no"];
-  "PATCH sticky body" -> "POST review with inline comments";
-  "POST new sticky" -> "POST review with inline comments";
-  "Build inline payload" -> "POST review with inline comments";
+  "PATCH sticky body" -> "Capture sticky URL";
+  "POST new sticky" -> "Capture sticky URL";
+  "Capture sticky URL" -> "Publish commit status";
+  "Capture sticky URL" -> "Fill sticky URL in inline roots";
+  "Build inline payload template" -> "Fill sticky URL in inline roots";
+  "Fill sticky URL in inline roots" -> "POST review with inline comments";
+  "Publish commit status" -> "Done";
   "POST review with inline comments" -> "Done";
 }
 ```
@@ -722,33 +842,54 @@ STICKY_ID=$(gh api repos/$OWNER/$REPO/issues/$N/comments \
   --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | .id' | head -1)
 
 # 2. write sticky body to a temp file (skill builds the markdown)
-# sticky.md should embed both markers: <!-- pr-review:sticky --> and <!-- pr-review:sha=$HEAD -->
+# sticky.md should embed markers:
+# <!-- pr-review:sticky -->
+# <!-- pr-review:version=2 -->
+# <!-- pr-review:sha=$HEAD -->
+# <!-- pr-review:status=$STATUS_TOKEN -->
 
-# 3a. create new sticky
-[ -z "$STICKY_ID" ] && gh api -X POST repos/$OWNER/$REPO/issues/$N/comments \
-  -F body=@sticky.md
+# 3a. create new sticky, capturing the permalink
+if [ -z "$STICKY_ID" ]; then
+  STICKY_URL=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments \
+    -F body=@sticky.md --jq '.html_url')
+fi
 
-# 3b. or patch existing sticky
-[ -n "$STICKY_ID" ] && gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID \
-  -F body=@sticky.md
+# 3b. or patch existing sticky, capturing the permalink
+if [ -n "$STICKY_ID" ]; then
+  STICKY_URL=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID \
+    -F body=@sticky.md --jq '.html_url')
+fi
 
-# 4. post inline comments as one review (single API call)
+# 4. publish PR-header-visible commit status.
+# STATUS_STATE: success for PASSED / PASSED_WITH_NOTES, failure for REVIEW_BEFORE_MERGE / BLOCKED / PARTIAL.
+# STATUS_DESCRIPTION must stay short enough for GitHub's status API.
+gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
+  -f state="$STATUS_STATE" \
+  -f context="pr-review" \
+  -f target_url="$STICKY_URL" \
+  -f description="$STATUS_DESCRIPTION"
+
+# 5. fill $STICKY_URL into inline comment root bodies, then post as one review.
+# Skip this API call when there are no P0/P1/P2 inline comments for this iteration.
 # inline-comments.json shape: [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
-gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
-  -F event=COMMENT \
-  -F body="See sticky summary above." \
-  -F 'comments=@inline-comments.json'
+if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
+  gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
+    -F event=COMMENT \
+    -F body="pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
+    -F 'comments=@inline-comments.json'
+fi
 ```
 
 ### Old inline comments
 
-Do **not** delete or resolve old inline review comments from prior iterations. GitHub auto-marks them `outdated` when the underlying line moves; the UI collapses outdated threads. This is the chosen trade-off (vs. graphql resolve) for operational simplicity.
+Do **not** delete or resolve old inline review comments from prior iterations. GitHub auto-marks them `outdated` when the underlying line moves; the UI collapses outdated threads. Opening a new root for a repeated finding is allowed, but keep the same `F<n>` id, include `Sticky summary`, and include `Previous thread` when known. This is the chosen trade-off (vs. graphql resolve) for operational simplicity.
 
 ### Dry-run mode
 
 When `dry-run: true`:
 
 - Print sticky body markdown to console (with markers)
+- Print commit status payload (`state`, `context`, `target_url`, `description`)
 - Print inline payload as JSON
 - Skip all `gh api` writes
 - Useful for first-time use, debugging, or auditing output before publishing
@@ -772,10 +913,13 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Lean conservative** — low-confidence findings always demote to ❓ Question (Q)
 - **Spec gaps don't block review** — mark Q for spec author, proceed with code findings
 - **Severity downgrades must be visible** — flat section in sticky, never `<details>`
-- **Don't auto-grep for spec location** — use only what the user provides
+- **Don't auto-grep for arbitrary spec location** — use user-provided spec/context plus durable artifacts explicitly linked from PR body or repo rules
 - **Subagent reports are advisory** — dispatcher applies merge rule and dedup, not subagents
-- **Subagent failure must be surfaced** — sticky header carries the partial-mode warning; never silent
+- **Subagent failure must be surfaced** — sticky status heading becomes `⚠️ pr-review: PARTIAL`; never silent
+- **Commit status links to sticky** — publish GitHub status context `pr-review` with `target_url` set to the sticky permalink
 - **Finding IDs are `F`-prefixed, never `#`-prefixed** (`F1`, `F2`, …) — GitHub auto-links a bare `#<digits>` in a comment to the issue/PR of that number, so a finding labelled `#7` renders in the sticky as a link to issue #7 (an unrelated issue that merely shares the number). The `F` prefix sidesteps the collision entirely
+- **New incremental roots are allowed** — repeated findings may open a fresh root comment, but must reuse the same `F<n>`, include `Sticky summary`, and include `Previous thread` when known
+- **Accepted exceptions unblock status** — follow-up / wontfix / by-design dispositions move to `↪ Accepted exceptions` and no longer count as open blockers
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
 - **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
 - **Output language is adaptive** — PR-published prose follows the PR description's language; markers / titles / field labels / keywords / terms stay English. See [Output Language](#output-language)
