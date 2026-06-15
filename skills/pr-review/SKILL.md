@@ -14,7 +14,7 @@ Dispatch in PARALLEL using a single message with multiple Agent tool calls. If o
 
 Publishing happens in the main session (post-merge) — not in subagents.
 
-`mode: local` does NOT relax this gate. Local mode changes the output target (JSON to stdout instead of GitHub sticky/inline), not the reviewer. The 4-subagent parallel dispatch is exactly the property that makes local mode worth invoking from a supervisor session — without it the caller could just self-review.
+`mode: local` does NOT relax this gate. Local mode changes the output target (JSON to stdout instead of the PR/MR sticky/inline), not the reviewer. The 4-subagent parallel dispatch is exactly the property that makes local mode worth invoking from a supervisor session — without it the caller could just self-review.
 </HARD-GATE>
 
 ## Rationalization Prevention
@@ -50,7 +50,7 @@ Publishing happens in the main session (post-merge) — not in subagents.
 - Security / logic / performance scans on code changes
 - Spec compliance verification when spec exists
 - Organizing findings with severity + blast radius + confidence
-- Posting findings to GitHub PR as sticky summary + inline comments
+- Posting findings to the PR/MR as sticky summary + inline comments
 
 **NOT for:**
 
@@ -116,15 +116,15 @@ digraph pr_review {
 
 ### Required
 
-**`pr`** — `<owner>/<repo>#<N>` or full PR URL. Used for sticky lookup and publishing. No implicit branch-based detection (too brittle).
+**`pr`** — `<owner>/<repo>#<N>` or a full PR/MR URL (GitHub PR, or GitLab `/-/merge_requests/<iid>`). Used for platform detection, sticky lookup, and publishing — see [Platform](#platform). No implicit branch-based detection (too brittle).
 
-> **Exception**: `mode: local` does not require `pr` (no GitHub side effects). See [Local Mode](#local-mode).
+> **Exception**: `mode: local` does not require `pr` (no remote side effects). See [Local Mode](#local-mode).
 
 ### Optional
 
 **`mode`** — `auto` (default) / `full` / `incremental` / `local`. See [Mode Detection](#mode-detection) and [Local Mode](#local-mode).
 
-**`dry-run`** — `true` / `false` (default `false`). When true, builds sticky + inline payloads and prints to console; no GitHub API writes.
+**`dry-run`** — `true` / `false` (default `false`). When true, builds sticky + inline payloads and prints to console; no remote API writes (GitHub/GitLab).
 
 **`base`** — base git ref for diff scope (e.g. `origin/main`). Used by **local mode only** — replaces the sticky/PR-based base lookup. Ignored for other modes (they derive base from the PR or repo state).
 
@@ -169,6 +169,43 @@ Examples:
 
 Repo rules are review inputs, not output metadata. Do **not** add a "rules source" / "review inputs" section to the sticky.
 
+## Platform
+
+`pr-review` publishes to **GitHub** (via `gh`) or **GitLab** (via `glab`). Resolve `$PLATFORM` before Mode Detection — it selects every discovery and publish endpoint below. Both platforms use the same sticky/inline markers (HTML comments render in either markdown), so only the transport differs.
+
+### Detection
+
+- `pr` is a full URL → inspect host + path:
+  - host `github.com`, or path contains `/pull/` → `gh`
+  - path contains `/-/merge_requests/` → `glab`
+- `pr` is `<owner>/<repo>#<N>` shorthand (no host) → detect from `git remote get-url origin`: `github.com` → `gh`; any other host → `glab`.
+- Self-hosted GitLab needs no special handling — `glab` targets its configured host. **Never hardcode a hostname.**
+
+### Identifiers
+
+| | GitHub | GitLab |
+| --- | --- | --- |
+| Repo / project | `$OWNER/$REPO` | `$PROJECT` = URL-encoded `namespace/path` (`/` → `%2F`) |
+| PR / MR number | `$N` | `$IID` (the MR number) |
+| Inline diff anchors | n/a | `$BASE` / `$START` / `$HEAD` from `glab api projects/$PROJECT/merge_requests/$IID` → `.diff_refs` |
+
+### Endpoint adapter
+
+| Operation | GitHub (`gh api`) | GitLab (`glab api`) |
+| --- | --- | --- |
+| Find sticky | `repos/$OWNER/$REPO/issues/$N/comments` | `projects/$PROJECT/merge_requests/$IID/notes?per_page=100` |
+| Create sticky | `-X POST .../issues/$N/comments` | `-X POST .../merge_requests/$IID/notes` |
+| Update sticky **in place** | `-X PATCH .../issues/comments/$ID` | `-X PUT .../merge_requests/$IID/notes/$ID` |
+| Delete stale sticky | `-X DELETE .../issues/comments/$ID` | `-X DELETE .../merge_requests/$IID/notes/$ID` |
+| Commit status | `-X POST .../statuses/$HEAD -f context=pr-review` | `-X POST .../statuses/$HEAD -f name=pr-review` |
+| Inline comment | one review: `-X POST .../pulls/$N/reviews` (batched) | one discussion **per finding**: `-X POST .../merge_requests/$IID/discussions --input <json>` |
+
+GitLab specifics that bite (verified against a live MR):
+
+- **Sticky must be edited in place** with `PUT .../notes/$ID`. Posting a fresh note every run is exactly what makes incremental detection fail (multiple stickies, no canonical `last_sha`).
+- **Inline position must travel as a JSON body** via `--input`. Passing `-f "position[...]"` form flags is silently dropped and the note lands un-anchored as a plain `DiscussionNote` instead of a `DiffNote`.
+- **Commit status state token is `failed`** (GitHub uses `failure`); GitLab also has no delete-status API (a status is only superseded by a newer post on the same `name`).
+
 ## Mode Detection
 
 Resolve before dispatch. The mode controls diff scope and output sections.
@@ -199,12 +236,18 @@ digraph mode {
 }
 ```
 
-Sticky discovery:
+Sticky discovery (use the platform's "Find sticky" endpoint from [Platform](#platform)):
 
 ```bash
-gh api repos/<owner>/<repo>/issues/<N>/comments \
+# GitHub
+gh api repos/$OWNER/$REPO/issues/$N/comments \
   --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | {id, body}'
+# GitLab
+glab api "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
+  | jq '[.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)'
 ```
+
+When more than one sticky matches (legacy duplicates from older runs), the **newest (highest id)** is canonical — its body holds the authoritative `last_sha`. Publishing edits that one in place and deletes the rest (see [Publishing](#publishing)).
 
 Markers embedded in sticky body:
 
@@ -339,8 +382,8 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
 ### What local mode drops
 
 - Sticky comment build / markdown rendering
-- Inline comment markdown / GitHub Review API call
-- Sticky discovery via `gh api`
+- Inline comment markdown / inline-endpoint call (`gh` review or `glab` discussions)
+- Sticky discovery via `gh` / `glab`
 - last_sha derivation from sticky body (caller passes it)
 - Noop case (caller decides whether to re-invoke; if `last_sha == HEAD` and caller still invokes, return `findings: []` + a `status: "noop"`)
 
@@ -513,11 +556,11 @@ Terminal / JSON output (`mode=local` JSON, dry-run console, noop message) stays 
 
 After subagent findings are merged, deduped, and severity-calibrated, produce three artifacts:
 
-1. **Sticky comment** — single issue comment on the PR; updated in place across iterations (PATCH same comment id). This is the canonical review summary.
-2. **Commit status** — GitHub commit status with context `pr-review`, visible in the PR header / Checks area. Its `target_url` links to the sticky comment.
-3. **Inline review comments** — one GitHub review submission (`event=COMMENT`) containing one root comment per P0 / P1 / P2 finding emitted in this iteration. Q findings stay in the sticky.
+1. **Sticky comment** — a single comment on the PR/MR (GitHub issue comment / GitLab MR note); updated in place across iterations (same comment id). This is the canonical review summary.
+2. **Commit status** — commit status named `pr-review` (GitHub `context` / GitLab `name`), visible in the PR/MR header / Checks area. Its `target_url` links to the sticky comment.
+3. **Inline comments** — one root comment per P0 / P1 / P2 finding emitted in this iteration, anchored to the diff (GitHub: one batched review; GitLab: one discussion per finding — see [Platform](#platform)). Q findings stay in the sticky.
 
-Status tier (drives sticky heading and commit status, NOT the actual GitHub review event):
+Status tier (drives sticky heading and commit status, NOT any actual approve/request-changes review event):
 
 | Condition                                    | Sticky heading                         | Commit status |
 | -------------------------------------------- | -------------------------------------- | ------------- |
@@ -716,7 +759,7 @@ Follow-up / wontfix / by-design rows MUST also appear under `↪ Accepted except
 
 ### Inline comment body template
 
-One per P0 / P1 / P2 finding emitted in this iteration. Posted via GitHub Review API (single review, `event=COMMENT`). Opening a new root comment for the same finding in a later iteration is allowed, but the root MUST keep the same `F<n>` finding ID, use this template, link to the sticky, and link to the previous thread when known.
+One per P0 / P1 / P2 finding emitted in this iteration. Anchored to the diff via the platform's inline endpoint — GitHub: one batched review (`event=COMMENT`); GitLab: one discussion per finding carrying a `position` (see [Platform](#platform)). Opening a new root comment for the same finding in a later iteration is allowed, but the root MUST keep the same `F<n>` finding ID, use this template, link to the sticky, and link to the previous thread when known.
 
 ````markdown
 <!-- pr-review:finding-root -->
@@ -809,69 +852,71 @@ digraph publish {
   "Build inline payload template" [shape=box];
   "Find sticky comment" [shape=box];
   "Found?" [shape=diamond];
-  "PATCH sticky body" [shape=box];
+  "Update sticky in place" [shape=box];
+  "Delete stale duplicate stickies" [shape=box];
   "POST new sticky" [shape=box];
   "Capture sticky URL" [shape=box];
   "Publish commit status" [shape=box];
   "Fill sticky URL in inline roots" [shape=box];
-  "POST review with inline comments" [shape=box];
+  "Post inline comments" [shape=box];
   "Done" [shape=doublecircle];
 
   "Findings merged" -> "Build sticky body";
   "Findings merged" -> "Build inline payload template";
   "Build sticky body" -> "Find sticky comment";
   "Find sticky comment" -> "Found?";
-  "Found?" -> "PATCH sticky body" [label="yes"];
+  "Found?" -> "Update sticky in place" [label="yes"];
   "Found?" -> "POST new sticky" [label="no"];
-  "PATCH sticky body" -> "Capture sticky URL";
+  "Update sticky in place" -> "Delete stale duplicate stickies";
+  "Delete stale duplicate stickies" -> "Capture sticky URL";
   "POST new sticky" -> "Capture sticky URL";
   "Capture sticky URL" -> "Publish commit status";
   "Capture sticky URL" -> "Fill sticky URL in inline roots";
   "Build inline payload template" -> "Fill sticky URL in inline roots";
-  "Fill sticky URL in inline roots" -> "POST review with inline comments";
+  "Fill sticky URL in inline roots" -> "Post inline comments";
   "Publish commit status" -> "Done";
-  "POST review with inline comments" -> "Done";
+  "Post inline comments" -> "Done";
 }
 ```
 
 ### Commands
+
+Pick endpoints by `$PLATFORM` (see [Platform](#platform)). The five steps are identical in shape; only the transport differs. `sticky.md` and its markers are byte-for-byte the same on both platforms:
+
+```
+<!-- pr-review:sticky -->
+<!-- pr-review:version=2 -->
+<!-- pr-review:sha=$HEAD -->
+<!-- pr-review:status=$STATUS_TOKEN -->
+```
+
+`STATUS_STATE` (step 4): `success` for PASSED / PASSED_WITH_NOTES; the failure token for REVIEW_BEFORE_MERGE / BLOCKED / PARTIAL — **GitHub `failure`, GitLab `failed`**. `STATUS_DESCRIPTION` must stay short.
+
+#### GitHub (`gh`)
 
 ```bash
 # 1. find sticky id (may be empty)
 STICKY_ID=$(gh api repos/$OWNER/$REPO/issues/$N/comments \
   --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | .id' | head -1)
 
-# 2. write sticky body to a temp file (skill builds the markdown)
-# sticky.md should embed markers:
-# <!-- pr-review:sticky -->
-# <!-- pr-review:version=2 -->
-# <!-- pr-review:sha=$HEAD -->
-# <!-- pr-review:status=$STATUS_TOKEN -->
+# 2. build sticky.md (markers above)
 
-# 3a. create new sticky, capturing the permalink
+# 3. create when none exists, else PATCH in place — capture the permalink
 if [ -z "$STICKY_ID" ]; then
   STICKY_URL=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments \
     -F body=@sticky.md --jq '.html_url')
-fi
-
-# 3b. or patch existing sticky, capturing the permalink
-if [ -n "$STICKY_ID" ]; then
+else
   STICKY_URL=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID \
     -F body=@sticky.md --jq '.html_url')
 fi
 
-# 4. publish PR-header-visible commit status.
-# STATUS_STATE: success for PASSED / PASSED_WITH_NOTES, failure for REVIEW_BEFORE_MERGE / BLOCKED / PARTIAL.
-# STATUS_DESCRIPTION must stay short enough for GitHub's status API.
+# 4. PR-header-visible commit status
 gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
-  -f state="$STATUS_STATE" \
-  -f context="pr-review" \
-  -f target_url="$STICKY_URL" \
-  -f description="$STATUS_DESCRIPTION"
+  -f state="$STATUS_STATE" -f context="pr-review" \
+  -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 
-# 5. fill $STICKY_URL into inline comment root bodies, then post as one review.
-# Skip this API call when there are no P0/P1/P2 inline comments for this iteration.
-# inline-comments.json shape: [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
+# 5. inline — one batched review. Skip when none this iteration.
+# inline-comments.json: [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
 if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
   gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
     -F event=COMMENT \
@@ -880,18 +925,63 @@ if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
 fi
 ```
 
+#### GitLab (`glab`)
+
+```bash
+# 0. MR web url + inline diff anchors ($PROJECT = url-encoded namespace/path, $IID = MR number)
+eval $(glab api "projects/$PROJECT/merge_requests/$IID" \
+  | jq -r '"MR_URL=\(.web_url) BASE=\(.diff_refs.base_sha) START=\(.diff_refs.start_sha) HEAD=\(.diff_refs.head_sha)"')
+
+# 1. find sticky notes; newest matching id is canonical, older matches are stale duplicates
+MATCHES=$(glab api "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
+  | jq '[.[] | select(.body | contains("<!-- pr-review:sticky -->"))]')
+STICKY_ID=$(echo "$MATCHES" | jq -r 'max_by(.id).id // empty')
+
+# 2. build sticky.md (same markers as GitHub)
+
+# 3. create when none exists, else PUT the newest in place + DELETE the stale duplicates (self-heal)
+if [ -z "$STICKY_ID" ]; then
+  STICKY_ID=$(glab api -X POST "projects/$PROJECT/merge_requests/$IID/notes" \
+    --field body=@sticky.md | jq -r '.id')
+else
+  glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
+    --field body=@sticky.md > /dev/null
+  echo "$MATCHES" | jq -r ".[] | select(.id != $STICKY_ID) | .id" | while read -r OLD; do
+    glab api -X DELETE "projects/$PROJECT/merge_requests/$IID/notes/$OLD"
+  done
+fi
+STICKY_URL="$MR_URL#note_$STICKY_ID"   # note permalink = <mr-web-url>#note_<id>
+
+# 4. commit status — `name=` (not `context=`), state token `failed` (not `failure`)
+glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
+  -f state="$STATUS_STATE" -f name="pr-review" \
+  -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
+
+# 5. inline — ONE discussion per finding; position MUST travel as a JSON body via --input.
+#    `-f "position[...]"` flags are silently dropped → un-anchored DiscussionNote.
+#    discussion-<n>.json (old_path == new_path; for an added/context line set
+#    new_line and omit old_line):
+#    {"body":"<root markdown>","position":{"position_type":"text",
+#      "base_sha":"$BASE","start_sha":"$START","head_sha":"$HEAD",
+#      "old_path":"<file>","new_path":"<file>","new_line":<line>}}
+for f in discussion-*.json; do
+  glab api -X POST "projects/$PROJECT/merge_requests/$IID/discussions" \
+    -H "Content-Type: application/json" --input "$f"
+done
+```
+
 ### Old inline comments
 
-Do **not** delete or resolve old inline review comments from prior iterations. GitHub auto-marks them `outdated` when the underlying line moves; the UI collapses outdated threads. Opening a new root for a repeated finding is allowed, but keep the same `F<n>` id, include `Sticky summary`, and include `Previous thread` when known. This is the chosen trade-off (vs. graphql resolve) for operational simplicity.
+Do **not** delete or resolve old inline comments from prior iterations. Both platforms auto-mark a diff-anchored comment `outdated` when its line moves (GitHub collapses outdated threads; GitLab marks the discussion outdated), so stale roots fade on their own. Opening a new root for a repeated finding is allowed, but keep the same `F<n>` id, include `Sticky summary`, and include `Previous thread` when known. This is the chosen trade-off (vs. resolving threads via API) for operational simplicity. (Sticky duplicates are different — those the skill self-heals; see [Publishing](#publishing) step 3.)
 
 ### Dry-run mode
 
 When `dry-run: true`:
 
 - Print sticky body markdown to console (with markers)
-- Print commit status payload (`state`, `context`, `target_url`, `description`)
-- Print inline payload as JSON
-- Skip all `gh api` writes
+- Print commit status payload (`state`, `context`/`name`, `target_url`, `description`)
+- Print inline payload as JSON (GitHub `inline-comments.json` / GitLab `discussion-*.json`)
+- Skip all `gh` / `glab` writes
 - Useful for first-time use, debugging, or auditing output before publishing
 
 ## Design note: prompt inlining over reference indirection
@@ -916,7 +1006,7 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **Don't auto-grep for arbitrary spec location** — use user-provided spec/context plus durable artifacts explicitly linked from PR body or repo rules
 - **Subagent reports are advisory** — dispatcher applies merge rule and dedup, not subagents
 - **Subagent failure must be surfaced** — sticky status heading becomes `⚠️ pr-review: PARTIAL`; never silent
-- **Commit status links to sticky** — publish GitHub status context `pr-review` with `target_url` set to the sticky permalink
+- **Commit status links to sticky** — publish the commit status named `pr-review` (GitHub `context` / GitLab `name`) with `target_url` set to the sticky permalink
 - **Finding IDs are `F`-prefixed, never `#`-prefixed** (`F1`, `F2`, …) — GitHub auto-links a bare `#<digits>` in a comment to the issue/PR of that number, so a finding labelled `#7` renders in the sticky as a link to issue #7 (an unrelated issue that merely shares the number). The `F` prefix sidesteps the collision entirely
 - **New incremental roots are allowed** — repeated findings may open a fresh root comment, but must reuse the same `F<n>`, include `Sticky summary`, and include `Previous thread` when known
 - **Accepted exceptions unblock status** — follow-up / wontfix / by-design dispositions move to `↪ Accepted exceptions` and no longer count as open blockers
