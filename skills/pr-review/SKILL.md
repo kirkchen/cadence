@@ -179,7 +179,24 @@ Repo rules are review inputs, not output metadata. Do **not** add a "rules sourc
   - host `github.com`, or path contains `/pull/` → `gh`
   - path contains `/-/merge_requests/` → `glab`
 - `pr` is `<owner>/<repo>#<N>` shorthand (no host) → detect from `git remote get-url origin`: `github.com` → `gh`; any other host → `glab`.
-- Self-hosted GitLab needs no special handling — `glab` targets its configured host. **Never hardcode a hostname.**
+- Self-hosted GitLab: derive the host from the MR URL (or `git remote get-url origin`) — **never hardcode a hostname** — and pin `glab` to it (see [glab auth](#glab-auth) below). `glab` does **not** infer the host from the token.
+
+### glab auth
+
+`glab` defaults to `gitlab.com`. An ambient `GITLAB_TOKEN` is applied to whatever host `glab` targets — it does **not** redirect `glab` to a self-hosted instance — so `glab api` silently 401s against e.g. `gitlab.example.com`. When `glab` fails auth, a session tends to improvise `curl` fallbacks with hand-rolled sticky parsing; that improvised discovery misses the existing sticky → full re-scan + duplicate sticky (the exact failure this skill exists to eliminate). Prevent it: **pin the host and assert auth before any `glab` call, and abort — never `curl`-improvise — if it fails.**
+
+Shell env does **not** persist across separate tool-call invocations, so set `GITLAB_HOST` **inside each bash block** that calls `glab` (the Mode Detection discovery block and the Publishing block below both do this):
+
+```bash
+export GITLAB_HOST="<host parsed from the MR URL — NOT hardcoded>"   # e.g. gitlab.example.com
+glab api user >/dev/null 2>&1 || {   # authenticated probe — glab api uses $GITLAB_HOST + $GITLAB_TOKEN
+  echo "pr-review: glab not authenticated for $GITLAB_HOST — ABORT (do NOT fall back to curl)." >&2
+  echo "  fix: provide GITLAB_HOST + GITLAB_TOKEN in the run env, or 'glab auth login --hostname $GITLAB_HOST'." >&2
+  exit 1
+}
+```
+
+On abort, report the auth failure to the caller; do **not** proceed with a `curl` fallback.
 
 ### Identifiers
 
@@ -202,6 +219,7 @@ Repo rules are review inputs, not output metadata. Do **not** add a "rules sourc
 
 GitLab specifics that bite (verified against a live MR):
 
+- **`glab` must be authenticated for the MR's host.** Self-hosted defaults to `gitlab.com` and the token env alone does not redirect it; set `GITLAB_HOST` per bash block and assert glab can authenticate (`glab api user`), then abort on failure — see [glab auth](#glab-auth). An unauthenticated `glab` pushes the session into `curl` improvisation whose discovery misses the existing sticky → full re-scan + duplicate sticky.
 - **Sticky must be edited in place** with `PUT .../notes/$ID`. Posting a fresh note every run is exactly what makes incremental detection fail (multiple stickies, no canonical `last_sha`).
 - **Inline position must travel as a JSON body** via `--input`. Passing `-f "position[...]"` form flags is silently dropped and the note lands un-anchored as a plain `DiscussionNote` instead of a `DiffNote`.
 - **Commit status state token is `failed`** (GitHub uses `failure`); GitLab also has no delete-status API (a status is only superseded by a newer post on the same `name`).
@@ -242,9 +260,13 @@ Sticky discovery (use the platform's "Find sticky" endpoint from [Platform](#pla
 # GitHub
 gh api repos/$OWNER/$REPO/issues/$N/comments \
   --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | {id, body}'
-# GitLab
-glab api "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
-  | jq '[.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)'
+# GitLab — pin host + assert auth first (see § glab auth), then --paginate + `jq -s add`
+# so an early sticky (kept at its original created_at by in-place edits) is still found once
+# the MR passes 100 notes — GitLab returns notes newest-first.
+export GITLAB_HOST="<host from the MR URL>"
+glab api user >/dev/null 2>&1 || { echo "glab not authed for $GITLAB_HOST — ABORT, do not curl-improvise" >&2; exit 1; }
+glab api --paginate "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
+  | jq -s 'add | [.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)'
 ```
 
 When more than one sticky matches (legacy duplicates from older runs), the **newest (highest id)** is canonical — its body holds the authoritative `last_sha`. Publishing edits that one in place and deletes the rest (see [Publishing](#publishing)).
@@ -928,13 +950,20 @@ fi
 #### GitLab (`glab`)
 
 ```bash
-# 0. MR web url + inline diff anchors ($PROJECT = url-encoded namespace/path, $IID = MR number)
+# 0a. Pin glab to the MR host + assert auth (see § glab auth). Env does not persist across
+#     tool calls, so this MUST live in the same block as the glab calls below.
+export GITLAB_HOST="<host from the MR URL>"
+glab api user >/dev/null 2>&1 || { echo "glab not authed for $GITLAB_HOST — ABORT, do not curl-improvise" >&2; exit 1; }
+
+# 0b. MR web url + inline diff anchors ($PROJECT = url-encoded namespace/path, $IID = MR number)
 eval $(glab api "projects/$PROJECT/merge_requests/$IID" \
   | jq -r '"MR_URL=\(.web_url) BASE=\(.diff_refs.base_sha) START=\(.diff_refs.start_sha) HEAD=\(.diff_refs.head_sha)"')
 
-# 1. find sticky notes; newest matching id is canonical, older matches are stale duplicates
-MATCHES=$(glab api "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
-  | jq '[.[] | select(.body | contains("<!-- pr-review:sticky -->"))]')
+# 1. find sticky notes; --paginate + `jq -s add` so an early sticky isn't lost past page 1
+#    (GitLab returns notes newest-first; in-place edits keep the sticky at its original created_at).
+#    newest matching id is canonical, older matches are stale duplicates.
+MATCHES=$(glab api --paginate "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
+  | jq -s 'add | [.[] | select(.body | contains("<!-- pr-review:sticky -->"))]')
 STICKY_ID=$(echo "$MATCHES" | jq -r 'max_by(.id).id // empty')
 
 # 2. build sticky.md (same markers as GitHub)
