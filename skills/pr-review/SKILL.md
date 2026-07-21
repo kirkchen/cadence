@@ -29,6 +29,8 @@ Publishing happens in the main session (post-merge) — not in subagents.
 | "I'll just check the obvious bug myself"       | Even one self-checked finding contaminates the report — readers can't tell which findings are biased. |
 | "1 subagent failed, just hide it"              | Hiding partial review = pretending coverage existed. Surface it in sticky header.                     |
 | "Prior finding line moved, mark fixed"         | Line moving ≠ behaviour fixed. Require subagent verification, then hedge as `Likely fixed`.           |
+| "Sticky body is long, I'll trim the discovery output" | Trimming the body is exactly how `last_sha` got destroyed once — full re-review + renumbering. Discovery emits `{id, sha}`; there is nothing to trim. |
+| "Sticky found; checking ancestry is extra work" | `merge-base --is-ancestor` is one command. Skipping it turned a 1-commit incremental into a full re-review of a 9-iteration thread. |
 
 ## Red Flags — STOP if you catch yourself:
 
@@ -41,6 +43,9 @@ Publishing happens in the main session (post-merge) — not in subagents.
 - Hiding subagent failures in output (must surface in sticky header)
 - Marking prior findings as `✅ Fixed` without a verification note from subagent
 - Publishing inline comments before merging findings (dispatch → merge → publish)
+- Truncating sticky discovery output or a fetched sticky body (`[:100]`-style) anywhere in the flow
+- Resolving `full` while a sticky exists without a recorded `unreachable` from `git merge-base --is-ancestor`
+- Allocating finding IDs from F1 when any `F<n>` already exists on the PR/MR
 
 <decision_boundary>
 
@@ -254,39 +259,53 @@ digraph mode {
 }
 ```
 
-Sticky discovery (use the platform's "Find sticky" endpoint from [Platform](#platform)):
+Sticky discovery (use the platform's "Find sticky" endpoint from [Platform](#platform)). The jq extracts `{id, sha}` from the markers — NOT the raw body — so the output is a few dozen bytes and there is never a reason to trim it:
 
 ```bash
 # GitHub
 gh api repos/$OWNER/$REPO/issues/$N/comments \
-  --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | {id, body}'
+  --jq '[.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)
+        | {id, sha: (.body | capture("pr-review:sha=(?<s>[0-9a-f]{40})").s)}'
 # GitLab — pin host + assert auth first (see § glab auth), then --paginate + `jq -s add`
 # so an early sticky (kept at its original created_at by in-place edits) is still found once
 # the MR passes 100 notes — GitLab returns notes newest-first.
 export GITLAB_HOST="<host from the MR URL>"
 glab api user >/dev/null 2>&1 || { echo "glab not authed for $GITLAB_HOST — ABORT, do not curl-improvise" >&2; exit 1; }
 glab api --paginate "projects/$PROJECT/merge_requests/$IID/notes?per_page=100" \
-  | jq -s 'add | [.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)'
+  | jq -s 'add | [.[] | select(.body | contains("<!-- pr-review:sticky -->"))] | max_by(.id)
+           | {id, sha: (.body | capture("pr-review:sha=(?<s>[0-9a-f]{40})").s)}'
 ```
 
-When more than one sticky matches (legacy duplicates from older runs), the **newest (highest id)** is canonical — its body holds the authoritative `last_sha`. Publishing edits that one in place and deletes the rest (see [Publishing](#publishing)).
+When more than one sticky matches (legacy duplicates from older runs), the **newest (highest id)** is canonical — `max_by(.id)` implements that; its `sha` capture is the authoritative `last_sha`. Publishing edits that one in place and deletes the rest (see [Publishing](#publishing)).
+
+**Never truncate sticky content — reshape the jq and you will destroy state.** Real regression: a session rewrote this jq to emit `body[:100]` "to keep the output small", which cut `pr-review:sha=` off at 26 of 40 hex chars — `last_sha` was lost, the reachability check was silently skipped, and a 9-iteration review thread was re-reviewed as `full` with findings renumbered from F1, colliding with the existing inline comment history. The `{id, sha}` shape above exists precisely so output size is never a reason to trim. If the capture fails (sticky present but its `sha` marker missing or short — a corrupted sticky), treat it as `last_sha` unreachable: fall back to `full` with the force-push warning; publishing repairs the marker.
+
+After mode resolves, fetch the canonical sticky's **full body** by id (single-note GET, a few KB) — required input in BOTH modes: incremental dispatch consumes the prior-findings state; a full fallback still consumes `📋 Currently open`, `↪ Accepted exceptions`, and the highest allocated `F<n>` (see [Numbering continuity](#numbering-continuity)). Do not trim that fetch either.
 
 Markers embedded in sticky body:
 
 - `<!-- pr-review:sticky -->` — locator
 - `<!-- pr-review:sha=<commit> -->` — last reviewed HEAD
 
-SHA reachability:
+SHA reachability — MANDATORY whenever a sticky was found. Resolving `full` while a sticky exists, without a recorded `unreachable` from this check, is a protocol violation:
 
 ```bash
-git cat-file -e <last_sha> 2>/dev/null && echo reachable || echo unreachable
+LAST_SHA="<full 40-hex sha from discovery>"
+git cat-file -e "$LAST_SHA" 2>/dev/null || git fetch origin "$LAST_SHA" 2>/dev/null || true
+git merge-base --is-ancestor "$LAST_SHA" HEAD && echo reachable || echo unreachable
 ```
+
+`cat-file -e` alone is NOT the test — the object can exist locally (stale ref, rebased-away commit still in the object store) without being an ancestor of HEAD; `merge-base --is-ancestor` is the actual ancestry check. And a fresh or shallow clone may simply not have the commit yet — fetch it before concluding `unreachable`.
 
 If unreachable (force-push / squash-merge of older PR / branch rebased): fall back to `full` AND prepend to sticky body:
 
 ```markdown
 > ⚠️ Prior review base `<last_sha>` is not reachable (force-push?). This iteration is a full re-review.
 ```
+
+### Numbering continuity
+
+Falling back to `full` re-scans the diff — it does NOT reset the review thread. Before dispatch, take the highest `F<n>` ever allocated on this PR/MR — scan `pr-review:finding-id=` markers across the sticky AND existing finding roots, not just the sticky's open list — and let new findings continue from there. Re-found findings keep their original `F<n>` (match by slug + file), and previously accepted / wontfixed findings stay under `↪ Accepted exceptions` — a full fallback must not silently re-litigate them. Restarting at F1 collides with the inline comment history and destroys cross-iteration traceability.
 
 ### Noop case (`last_sha == HEAD`)
 
@@ -1040,6 +1059,6 @@ Cross-prompt sync is maintained via `<!-- keep-in-sync: ... -->` HTML comments a
 - **New incremental roots are allowed** — repeated findings may open a fresh root comment, but must reuse the same `F<n>`, include `Sticky summary`, and include `Previous thread` when known
 - **Accepted exceptions unblock status** — follow-up / wontfix / by-design dispositions move to `↪ Accepted exceptions` and no longer count as open blockers
 - **Prior findings: hedge on "fixed"** — always `Likely fixed`, never bare `Fixed`; line-moved ≠ behaviour-fixed
-- **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky
+- **Force-push aware** — when last_sha is unreachable, fall back to full + announce in sticky; finding numbering and accepted exceptions still carry over (see [Numbering continuity](#numbering-continuity))
 - **Output language is adaptive** — PR-published prose follows the PR description's language; markers / titles / field labels / keywords / terms stay English. See [Output Language](#output-language)
 - **Local mode is JSON-only** — no markdown, no sticky, no inline; caller (e.g. a supervisor session) consumes findings JSON and drives its own follow-up loop
