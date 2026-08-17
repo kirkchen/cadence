@@ -10,7 +10,9 @@ Review a PR/MR diff by dispatching independent role-based subagents in parallel,
 <HARD-GATE>
 You MUST dispatch independent subagents — NEVER review the diff yourself in the main session. The main session accumulates context bias from prior conversation. Only an isolated subagent can deliver an unbiased finding.
 
-Dispatch in PARALLEL using a single message with multiple Agent tool calls. If one subagent fails, proceed with the rest BUT surface the failure in the sticky comment header (never silent). If ALL fail, report failure — do NOT fall back to self-review.
+Dispatch in PARALLEL using a single message with multiple Agent tool calls, **every one of them with `run_in_background: false`**. Parallel means "one message, many calls" — it does NOT mean background. Nothing in this skill can be produced until every dispatched report is in hand, so there is no useful work to interleave; a turn that ends while a report is still outstanding throws that report away and publishes nothing.
+
+If one subagent fails, proceed with the rest BUT surface the failure in the sticky comment header (never silent). If ALL fail, report failure — do NOT fall back to self-review.
 
 Publishing happens in the main session (post-merge) — not in subagents.
 
@@ -25,6 +27,8 @@ Publishing happens in the main session (post-merge) — not in subagents.
 | "I already saw this code earlier"              | That's exactly why you can't review it. Familiarity hides issues.                                     |
 | "Dispatching 3-4 subagents is overkill"        | Each persona uses a different mental model. A single agent dilutes all of them.                       |
 | "Sequential is fine, I'll save tokens"         | Parallel is faster wall-clock and prevents one report from biasing the next.                          |
+| "Background is fine, I'll be notified when each finishes" | Only if you are still alive to be notified. Non-interactive hosts end the run when your turn ends — the outstanding reports never arrive and the review publishes nothing. |
+| "I'll report progress while the rest finish"   | Progress narration ends your turn. There is no partial output worth shipping — dispatch blocking and say nothing until all reports land. |
 | "spec-auditor isn't needed, the spec is short" | If has_spec is true, dispatch. The check is whether spec exists, not whether it's verbose.            |
 | "I'll just check the obvious bug myself"       | Even one self-checked finding contaminates the report — readers can't tell which findings are biased. |
 | "1 subagent failed, just hide it"              | Hiding partial review = pretending coverage existed. Surface it in sticky header.                     |
@@ -34,6 +38,7 @@ Publishing happens in the main session (post-merge) — not in subagents.
 
 - Reviewing any category yourself instead of dispatching
 - Dispatching subagents sequentially instead of in parallel
+- Dispatching without `run_in_background: false`, or ending a turn with any report still outstanding
 - Skipping a subagent because "the diff doesn't look like it has X"
 - Claiming review passed without reading subagent findings
 - Editing code during review (review reads, doesn't write)
@@ -394,7 +399,7 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
 
 ### What local mode keeps from default mode
 
-- HARD-GATE: still dispatch 4 parallel subagents; main session never reviews
+- HARD-GATE: still dispatch 4 parallel subagents with `run_in_background: false`; main session never reviews
 - Capability flags (has_spec, has_repo, is_trivial)
 - Finding Inclusion Threshold (Reachable / Precedent / Asymmetric / Historical + drop signals A/B/C/D)
 - Severity Merge Rule (4 steps + P-code mapping)
@@ -439,7 +444,7 @@ Subagents receive the compact context pack, but still emit findings only with qu
 
 ## Dispatch
 
-Default dispatch (4 subagents in parallel via a single message):
+Default dispatch (4 subagents in one message, each blocking — see **Blocking dispatch** below):
 
 | Subagent          | Prompt file                   | When dispatched             |
 | ----------------- | ----------------------------- | --------------------------- |
@@ -460,6 +465,10 @@ Each subagent receives:
   - Prior `Checked & clean` slugs for drift spot-check
   - **`prior_fix_range`**: `<first-fix-sha>^..<last-fix-sha>` — git range covering the commits that addressed iter (N-1) findings. Subagent uses this to apply drop signal (B) self-introduced surface. In single-commit-per-iter cases this collapses to `<last_sha>..HEAD`. If the dispatcher cannot determine the range (e.g. force-push, squash-merge of iter N-1 commits) → fall back to `full` mode and announce in sticky; do NOT invoke incremental mode without `prior_fix_range`
 - NO conversation history, NO session context, NO prior subagent findings from this run. Repo rules inside the compact context pack are allowed because they come from durable project artifacts or explicit invocation inputs.
+
+**Blocking dispatch**: every Agent call in the dispatch message MUST set `run_in_background: false`. Do not leave this to judgement — the host's default is background, and its tool description actively discourages turning that off for the general case. This skill is the exception the general case does not cover: the dispatcher's entire remaining job (merge → emit → publish) consumes all N reports, so there is no work to interleave and nothing to publish early.
+
+The failure this prevents is silent. With background dispatch the dispatcher gets woken per completion, narrates "waiting for the rest", and ends its turn; a non-interactive host (CI runner, ACP/SDK-driven worker, any headless session) treats that turn ending as the run ending, and every report still in flight is discarded. The PR gets no sticky, no inline comments, no failure notice — indistinguishable from "the review never triggered". Observed in production over 2026-08-11..08-17: same trigger, same skill, some runs published and some vanished, purely on whether the last subagent beat the dispatcher's turn end.
 
 **Threshold inlining**: the [Finding Inclusion Threshold](#finding-inclusion-threshold) is inlined directly in each subagent prompt (`security-reviewer-prompt.md` / `staff-engineer-prompt.md` / `sdet-prompt.md` / `spec-auditor-prompt.md`). Dispatcher does NOT need to prepend threshold text — subagents apply it from their baked-in section. This avoids relying on dispatcher's "good behavior" to inject the gate on every invocation.
 
