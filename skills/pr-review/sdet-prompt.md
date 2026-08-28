@@ -58,7 +58,7 @@ You may _report a missing test for a security-critical path_ (T1) but the securi
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -167,7 +167,7 @@ For EACH candidate finding:
 2. **Did I check whether a test already exists** (when has_repo=true)? Grep before emitting T1. If existing test covers it → drop. If you didn't grep → demote to ❓ Question.
 3. **Does this belong to T1–T4?** If it's "the logic is wrong" → drop, route to staff-engineer.
 4. **Is the suggested test layer correct?** Don't recommend e2e for a pure utility function.
-5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D) and the SDET hygiene cluster triggers?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch and the "missing assertion that catches Reachable bug" counter-example) → batch into Q-class hygiene follow-up. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D) and the SDET hygiene cluster triggers?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch and the "missing assertion that catches Reachable bug" counter-example) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 6. **Would the author look at this and say "we have a test for that"?** If yes and you didn't grep → drop.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
@@ -280,7 +280,7 @@ You MUST do three things in addition to fresh-finding emission.
 For EACH candidate fresh finding, compare its `file:line` against `prior_fix_range`. If the cited line falls inside that range:
 
 - Justification is **Asymmetric** (rare for T-class — only when missing assertion would catch security / data-loss / data-integrity / billing bug) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
-- Justification is **Reachable / Precedent / Historical** → (B) alone drops; batch into Q-class `<file>-iter-fix-followups` hygiene
+- Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
 T-class incremental findings are particularly prone to (B) — the previous iter's fix often added a test or assertion that this iter then critiques as "still not strong enough". Apply (B) strictly; the assertion-strength cluster triggers above handle most of these.
 

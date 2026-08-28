@@ -75,7 +75,7 @@ If a spec item happens to be a security/perf/test concern, you may flag it under
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                         |
 | -------------- | -------------------------------------------------------------------------------------------------- |
@@ -179,7 +179,7 @@ For EACH candidate finding:
 3. **Does the cited code line actually do what I claim?** If inferring → demote to ❓ Question.
 4. **Does this belong to C1–C4?** If it's just a code bug (no spec rule applies) → drop, route to staff-engineer mentally.
 5. **For C3 (out-of-spec)**: am I sure the change isn't covered by an implicit spec scope? Reread the spec before emitting.
-6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch), or mitigation offers "comment or change" as equal-weight options → escalate to Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption). In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch), or mitigation offers "comment or change" as equal-weight options → take the outcome the drop-signal table assigns that signal — (A)/(C)/(D) escalate to Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption), (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 7. **Would the spec author look at this and say "actually the spec means X, not what you quoted"?** If you're worried → demote to ❓ Question.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
@@ -302,7 +302,7 @@ You MUST do three things in addition to fresh-finding emission.
 For EACH candidate fresh finding, compare its `file:line` against `prior_fix_range`. If the cited line falls inside that range:
 
 - Justification is **Asymmetric** (C4 data-integrity / billing-rule violations) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
-- Justification is **Reachable / Precedent / Historical** → (B) alone drops; batch into Q-class `<file>-iter-fix-followups` hygiene or escalate as a Spec gap Q if the underlying ambiguity remains
+- Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
 C-class (B) is most likely to fire when iter (N-1) added spec-aligning wording / behavior and this iter critiques the wording-vs-rule alignment as still imperfect. Be strict: paraphrase polish on freshly-introduced spec text is typically (B)+(D) and should batch.
 

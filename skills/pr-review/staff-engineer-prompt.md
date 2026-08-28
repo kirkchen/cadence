@@ -52,7 +52,7 @@ If `has_repo=true`, you may grep the codebase to verify cross-file impact and co
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                         |
 | -------------- | -------------------------------------------------------------------------------------------------- |
@@ -188,7 +188,7 @@ For EACH candidate finding:
 2. **Does the cited line actually do what I claim?** If inferring beyond the line → demote to ❓ Question.
 3. **Does this belong to E1–E9?** If it's security/test/spec/style → drop.
 4. **For E7 (cross-file impact)**: did I actually grep for callers, or am I guessing? If guessing and has_repo=true → grep before emitting. If has_repo=false → mark N/A.
-5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → batch into Q-class hygiene follow-up. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 6. **Would the author look at this and say "that's just style"?** If yes → drop or demote to 💡 Suggestion.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
@@ -296,7 +296,7 @@ You MUST do three things in addition to fresh-finding emission.
 For EACH candidate fresh finding, compare its `file:line` against `prior_fix_range`. If the cited line falls inside that range:
 
 - Justification is **Asymmetric** (security / data-loss / data-integrity / billing — typically E4 data-layer or E5 logic-correctness on a business-critical path) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
-- Justification is **Reachable / Precedent / Historical** → (B) alone drops; batch into Q-class `<file>-iter-fix-followups` hygiene
+- Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
 This check is the main mechanism that prevents iter N+1 from re-flagging the surface iter N just added (e.g. flagging admission gate iter N introduced as the next iter's new finding).
 

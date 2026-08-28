@@ -44,7 +44,7 @@ Review only these. Other categories belong to other personas (see Out-of-scope).
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                         |
 | -------------- | -------------------------------------------------------------------------------------------------- |
@@ -181,7 +181,7 @@ For EACH candidate finding, ask:
 1. **Did I quote the actual diff line in `Evidence:`?** If no → drop the finding.
 2. **Does the cited line actually do what I claim?** If you're inferring beyond what the line says → demote to ❓ Question with `confidence: low`.
 3. **Does this belong to S1–S5?** If it's logic/perf/test/style → drop, route mentally to the right persona.
-4. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → batch into Q-class hygiene follow-up. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+4. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 5. **Would the author look at this and say "that's not what the code does"?** If yes → drop or demote.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed. Better to under-report than over-report.
@@ -281,7 +281,7 @@ You MUST do three things in addition to fresh-finding emission.
 For EACH candidate fresh finding, compare its `file:line` against `prior_fix_range`. If the cited line falls inside that range:
 
 - Justification is **Asymmetric** (security / data-loss / data-integrity / billing — most S1–S5 findings) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
-- Justification is **Reachable / Precedent / Historical** → (B) alone drops; batch into Q-class `<file>-iter-fix-followups` hygiene
+- Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
 This check is what prevents iter N+1 from re-flagging the surface iter N just added.
 
