@@ -76,6 +76,8 @@ digraph pr_review {
     "Receive inputs" [shape=doublecircle];
     "Resolve mode" [shape=box];
     "Compute capability flags" [shape=box];
+    "Harvest author replies" [shape=box];
+    "Apply volume caps" [shape=box];
     "Parallel dispatch" [shape=box, style=bold];
     "security-reviewer" [shape=box];
     "staff-engineer" [shape=box];
@@ -93,7 +95,8 @@ digraph pr_review {
 
     "Receive inputs" -> "Resolve mode";
     "Resolve mode" -> "Compute capability flags";
-    "Compute capability flags" -> "Parallel dispatch";
+    "Compute capability flags" -> "Harvest author replies";
+    "Harvest author replies" -> "Parallel dispatch";
     "Parallel dispatch" -> "security-reviewer";
     "Parallel dispatch" -> "staff-engineer";
     "Parallel dispatch" -> "sdet";
@@ -106,7 +109,8 @@ digraph pr_review {
     "spec-auditor" -> "Collect + Dedup";
     "Skip spec-auditor" -> "Collect + Dedup";
     "Collect + Dedup" -> "Apply severity merge rule";
-    "Apply severity merge rule" -> "Build sticky + inline";
+    "Apply severity merge rule" -> "Apply volume caps";
+    "Apply volume caps" -> "Build sticky + inline";
     "Build sticky + inline" -> "dry-run?";
     "dry-run?" -> "Print to console" [label="yes"];
     "dry-run?" -> "Publish to PR" [label="no"];
@@ -423,6 +427,31 @@ Compute before dispatch:
 | `has_spec`   | false   | spec input present OR PR description has goal/requirement section | dispatch spec-auditor    |
 | `has_repo`   | true    | repo access available (grep / index / LSP)                        | enable cross-file checks |
 | `is_trivial` | false   | <50 LOC AND (docs-only OR pure rename OR pure type-only)          | skip staff-engineer      |
+| `is_prose`   | false   | ≥80% of changed lines are prose/spec files (`.md`, `.feature`, `.rst`, `.adoc`, docs-site config) | apply [prose severity ceiling](#prose-severity-ceiling) |
+
+### Prose severity ceiling
+
+Applies when `is_prose` is set. Do **not** skip review of prose diffs — in a repo whose product *is* prose (prompts, specs, runbooks), the text is the behavior. The problem is the opposite one: prose offers an unbounded supply of mechanically enumerable defects (every scenario missing a trace tag, every Then step that is not purely declarative, every section whose sibling has an error path), so an enumerating reviewer produces far more findings on a document than on the code it describes, in inverse proportion to the risk. Prose and config can be polished forever; the ceiling is what stops that.
+
+Under `is_prose`, these classes are capped at **P3** no matter how certain the finding:
+
+- Terminology, wording, tense, declarative-vs-imperative phrasing
+- Missing or mismatched trace annotations (`@covered-by` and equivalents)
+- Cross-reference line numbers in a design document
+- Symmetry gaps — "the sibling scenario has this step / error path / negative case, this one should too"
+- Counts and totals that drifted (`11 items` → `12 items`)
+- Sweep completeness — "the same term also appears in N files outside this diff" (also check drop signal (F) scope-declared)
+
+These keep full P0–P1 eligibility under `is_prose`:
+
+- The document contradicts **itself** in a way that yields two incompatible implementations
+- The document contradicts a **decision record** (ADR, RFC) it claims to implement
+- The document specifies behavior that **cannot be verified** by the test mechanism it names
+- The document describes a mechanism the **framework does not support**
+- The document's stated invariant and its stated mechanism are **mutually exclusive**
+- A **safety-relevant default** is left unstated (permission, retention, disclosure)
+
+A prose finding that fits none of the P0–P1 classes and none of the P3 classes is P2.
 
 ## Context Hydration
 
@@ -434,11 +463,34 @@ Allowed sources:
 - User-provided `spec`, `context`, `test direction`, and `repo rules`
 - Beat change artifacts or ADRs explicitly linked in the PR body or user-provided spec/context
 - Module README / repo instruction files selected by changed paths when the caller provides them as `repo rules`
+- **The dismissal ledger** — author replies on this PR's own finding threads, harvested per [Reply harvesting](#reply-harvesting). These are durable, attributable, on-the-record artifacts written by the author in response to a specific finding, not conversation.
 
 Do not include:
 
-- Chat history, author explanations not recorded in durable artifacts, or ad hoc "the author probably meant" assumptions
+- Chat history, ad hoc "the author probably meant" assumptions, or author statements made anywhere other than a finding thread on this PR
 - A sticky-visible "rules source" section. Context hydration is an input discipline, not PR output.
+
+### Reply harvesting
+
+Run before dispatch on every incremental iteration. Without it the review re-litigates settled findings: the author writes "wontfix, out of scope, here is why" in the thread, the next iteration never sees it, and the same finding comes back — which is the single most-cited reason developers stop trusting a review bot, and the thing they credit tools that *do* carry state with fixing.
+
+1. Fetch every finding thread on the PR (GitHub: review comment threads; GitLab: discussions whose root carries `pr-review:finding-root`).
+2. For each thread, take the author's replies — non-system notes not authored by the review identity.
+3. Classify each replied-to finding into the dismissal ledger:
+
+| Ledger entry | Author's reply says                                              | Effect on this and later iterations                          |
+| ------------ | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| `rebutted`   | the finding's premise is wrong (with reasoning or counter-evidence) | Do not re-emit. Record under `↪ Accepted exceptions` as `by-design` or `disputed` with the author's one-line reason. |
+| `wontfix`    | correct but deliberately not fixed here                            | Do not re-emit. Record under `↪ Accepted exceptions`.        |
+| `deferred`   | accepted, handled in a follow-up / later MR                        | Do not re-emit. Record with the follow-up reference if given. |
+| `fixed`      | claims a fix                                                       | Verify normally against the diff; re-emit only with `🔄 Still present` evidence. |
+| `unclear`    | reply exists but states no disposition                             | Treat as no reply.                                            |
+
+4. Pass the ledger to every subagent alongside prior findings. Subagents apply drop signal **(E)** against it.
+
+**Re-emitting over a ledger entry requires new evidence** — a later commit that reintroduces the condition, or a fact the author's reasoning did not address. State that evidence in the finding body. "I still think it matters" is not new evidence.
+
+**The ledger is per-PR and does not persist across PRs.** A pattern the author rejects repeatedly across PRs belongs in repo rules, added by a human — not inferred by the review.
 
 Subagents receive the compact context pack, but still emit findings only with quoted diff/spec evidence. Dispatcher uses the same pack for severity calibration, accepted-exception handling, and P0 conservatism.
 
@@ -460,10 +512,12 @@ Each subagent receives:
 - Mode (`full` / `incremental`)
 - Compact context pack from [Context Hydration](#context-hydration)
 - Role-specific inputs only where applicable (spec content for spec-auditor, test direction for sdet)
-- In `incremental` mode (dispatcher MUST provide all three):
+- In `incremental` mode (dispatcher MUST provide all four):
   - Prior findings JSON (subagent's own category scope only)
   - Prior `Checked & clean` slugs for drift spot-check
-  - **`prior_fix_range`**: `<first-fix-sha>^..<last-fix-sha>` — git range covering the commits that addressed iter (N-1) findings. Subagent uses this to apply drop signal (B) self-introduced surface. In single-commit-per-iter cases this collapses to `<last_sha>..HEAD`. If the dispatcher cannot determine the range (e.g. force-push, squash-merge of iter N-1 commits) → fall back to `full` mode and announce in sticky; do NOT invoke incremental mode without `prior_fix_range`
+  - **Dismissal ledger** from [Reply harvesting](#reply-harvesting) — every finding the author rebutted, wontfixed, or deferred, with their stated reason. Subagent applies drop signal (E) against it. An empty ledger is a valid value; a *missing* ledger is not — if replies could not be fetched, say so in the sticky rather than reviewing as if there were none.
+  - **`prior_fix_range`**: `<first-fix-sha>^..<last-fix-sha>` — git range covering the commits that addressed iter (N-1) findings. In single-commit-per-iter cases this collapses to `<last_sha>..HEAD`. If the dispatcher cannot determine the range (e.g. force-push, squash-merge of iter N-1 commits) → fall back to `full` mode and announce in sticky; do NOT invoke incremental mode without `prior_fix_range`
+  - **`mr_range`**: `<merge-base(target, HEAD)>..HEAD` — the whole PR's history. Drop signal (B) is evaluated against this, not against `prior_fix_range` alone: a line the PR added in commit 3 and removed in commit 9 is not a defect in the PR, and neither is the removal. `prior_fix_range` remains the narrower hint for *which* iteration introduced a surface; `mr_range` is what decides whether the surface is self-introduced at all.
 - NO conversation history, NO session context, NO prior subagent findings from this run. Repo rules inside the compact context pack are allowed because they come from durable project artifacts or explicit invocation inputs.
 
 **Blocking dispatch**: every Agent call in the dispatch message MUST set `run_in_background: false`. Do not leave this to judgement — the host's default is background, and its tool description actively discourages turning that off for the general case. This skill is the exception the general case does not cover: the dispatcher's entire remaining job (merge → emit → publish) consumes all N reports, so there is no work to interleave and nothing to publish early.
@@ -538,7 +592,9 @@ This gate is applied by each subagent inline before emitting a finding. **Canoni
 - `sdet-prompt.md` § Finding Inclusion Threshold
 - `spec-auditor-prompt.md` § Finding Inclusion Threshold
 
-All four contain the same Justification classes (Reachable / Precedent / Asymmetric / Historical), the same drop signals (A / B / C / D), and the same Asymmetric escape hatch. Per-prompt variations only add category-specific guidance (e.g. "most S1–S5 are Asymmetric" for security, "rare for T-class" for SDET).
+All four contain the same Justification classes (Reachable / Precedent / Asymmetric / Historical), the same drop signals (A / B / C / D / E / F), and the same narrowed Asymmetric escape hatch. Per-prompt variations only add category-specific guidance (e.g. "most S1–S5 are Asymmetric" for security, "rare for T-class" for SDET).
+
+Signals (E) previously-dismissed and (F) scope-declared were added after a review of 215 findings across 13 merged and in-flight MRs: 50% drew no action from the author, and the two largest recoverable causes were re-raising findings the author had already rebutted in-thread, and asking for sweeps the PR description had explicitly bounded. Neither is a generation problem — both are state the review had but never read.
 
 **Why duplicated across four prompts rather than referenced from one source**: see [Design note: prompt inlining](#design-note-prompt-inlining-over-reference-indirection).
 
@@ -552,22 +608,39 @@ Apply in fixed order to each finding. Lower number wins on conflict.
 
 1. **Base severity** — assigned by subagent at finding emission (emoji form)
 2. **Confidence demote** — `confidence: low` → demote to ❓ Question (terminal, no further escalation)
-3. **Blast attention** — `blast: cross-service` or `blast: data-layer` raises review attention and can escalate P2→P1 when the failure is factual. It does **not** automatically escalate to 🚨 Blocker.
-4. **P0 calibration** — final 🚨 / P0 requires the [P0 calibration](#p0-calibration) test: reachable now, severe/concrete, and must be handled in this PR.
-5. **Context adjust** — overrides from context input, repo rules, accepted scope, or explicit design trade-offs applied last. Accepted follow-up / wontfix / by-design dispositions remove the finding from open blockers.
-6. **Final severity** — result after all steps
-7. **Map to P-code** for output (dispatcher does this; subagents emit emoji severity only):
+3. **P1 gate** — see [P1 calibration](#p1-calibration). A finding that fails the gate is demoted to 💡 P2 or 🔧 P3, whatever its base severity. Applied before any escalation.
+4. **Blast attention** — `blast: cross-service` or `blast: data-layer` raises review attention and can escalate P2→P1 **only when the finding already passes the P1 gate**. It does **not** automatically escalate to 🚨 Blocker.
+5. **P0 calibration** — final 🚨 / P0 requires the [P0 calibration](#p0-calibration) test: reachable now, severe/concrete, and must be handled in this PR.
+6. **Context adjust** — overrides from context input, repo rules, accepted scope, or explicit design trade-offs applied last. Accepted follow-up / wontfix / by-design dispositions remove the finding from open blockers.
+7. **Final severity** — result after all steps
+8. **Map to P-code** for output (dispatcher does this; subagents emit emoji severity only):
 
-| Emoji         | P-code | Label                        |
-| ------------- | ------ | ---------------------------- |
-| 🚨 Blocker    | **P0** | must fix; blocks merge       |
-| ⚠️ Factual    | **P1** | should fix                   |
-| 💡 Suggestion | **P2** | consider                     |
-| ❓ Question   | **Q**  | clarify; not a priority tier |
+| Emoji         | P-code | Label                                              | Published as        |
+| ------------- | ------ | -------------------------------------------------- | ------------------- |
+| 🚨 Blocker    | **P0** | must fix; blocks merge                             | inline thread       |
+| ⚠️ Factual    | **P1** | breaks behavior / leaks data / blocks rollback     | inline thread       |
+| 💡 Suggestion | **P2** | real defect, bounded cost of shipping as-is        | inline thread       |
+| 🔧 Nit        | **P3** | correct but not worth a round trip                 | **sticky only**     |
+| ❓ Question   | **Q**  | clarify; not a priority tier                       | sticky only         |
 
-Severity ordering (for sort): P0 > P1 > P2. Q is orthogonal.
+Severity ordering (for sort): P0 > P1 > P2 > P3. Q is orthogonal.
 
-Downgrades (step 5 lowering a tier) MUST appear in the `Severity adjustments` section. Never silent. Never collapsed behind `<details>` — render as plain section when any adjustment exists.
+Downgrades (step 3 or step 6 lowering a tier) MUST appear in the `Severity adjustments` section. Never silent. Never collapsed behind `<details>` — render as plain section when any adjustment exists.
+
+### Volume caps (applied after merge + dedup, before publish)
+
+Noise, not inaccuracy, is what makes a reviewer get ignored. Google's Tricorder contract for review-time analyzers is an effective false-positive rate below 10%, where "effective false positive" means *the developer chose not to act* — a finding that is technically correct but draws no action counts against you exactly like a hallucination ([Sadowski et al., ICSE 2015](https://www.cs.umd.edu/class/spring2019/cmsc414/papers/tricorder-building-a-program-analysis-ecosystem.pdf); analyzers above 10% go on probation, above 25% get switched off). Reviews whose feedback is mostly actionable cluster at **1–3 comments**; comment relevance measurably dilutes as volume rises ([Chowdhury et al., MSR '26](https://arxiv.org/pdf/2604.03196)).
+
+| Cap                         | Rule                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Inline per iteration**    | At most **8** inline threads. Over the cap: keep P0 → P1 → P2 by severity, then by confidence; the remainder moves to the sticky as a counted line. |
+| **P3 per review**           | At most **5** listed individually in the sticky. Beyond that render `plus <N> similar items` and drop the detail. |
+| **Iteration 2+**            | P0 / P1 only. New P2 / P3 findings are collected into one sticky line, never inline.                        |
+| **Iteration 3+**            | P0 only. Everything else goes to the sticky.                                                                |
+
+Rationale for the iteration ramp: a one-line fix must not reach round seven on style. Author-reported fatigue with incremental AI review is specifically that "after the initial review, subsequent comments on revised pull requests often become redundant and unhelpful" ([Cihan et al., 2024](https://arxiv.org/pdf/2412.18531)).
+
+**Ordering matters as much as volume.** Emit inline threads highest-confidence-first: trust collapses on the first few items a reader checks, and the collapse is self-reinforcing — once a reader distrusts the tool they start filing real defects as false positives too ([Bessey et al., CACM 2010](https://www.cs.columbia.edu/~junfeng/17sp-e6121/papers/coverity.pdf)).
 
 ## Dedup (between subagent findings)
 
@@ -589,7 +662,7 @@ After subagent findings are merged, deduped, and severity-calibrated, produce th
 
 1. **Sticky comment** — a single comment on the PR/MR (GitHub issue comment / GitLab MR note); updated in place across iterations (same comment id). This is the canonical review summary.
 2. **Commit status** — commit status named `pr-review` (GitHub `context` / GitLab `name`), visible in the PR/MR header / Checks area. Its `target_url` links to the sticky comment.
-3. **Inline comments** — one root comment per P0 / P1 / P2 finding emitted in this iteration, anchored to the diff (GitHub: one batched review; GitLab: one discussion per finding — see [Platform](#platform)). Q findings stay in the sticky.
+3. **Inline comments** — one root comment per P0 / P1 / P2 finding emitted in this iteration and surviving the [volume caps](#volume-caps-applied-after-merge-dedup-before-publish), anchored to the diff (GitHub: one batched review; GitLab: one discussion per finding — see [Platform](#platform)). Ordered highest-confidence-first. P3 and Q findings stay in the sticky and never open a thread.
 
 Status tier (drives sticky heading and commit status, NOT any actual approve/request-changes review event):
 
@@ -598,7 +671,7 @@ Status tier (drives sticky heading and commit status, NOT any actual approve/req
 | Any subagent failed                          | `⚠️ pr-review: PARTIAL`                | `failure`     |
 | Any unaccepted P0                            | `🔴 pr-review: BLOCKED`                | `failure`     |
 | No unaccepted P0, any unaccepted P1          | `🟠 pr-review: REVIEW BEFORE MERGE`    | `failure`     |
-| Only unaccepted P2 / Q                       | `🟡 pr-review: PASSED WITH NOTES`      | `success`     |
+| Only unaccepted P2 / P3 / Q                  | `🟡 pr-review: PASSED WITH NOTES`      | `success`     |
 | Zero unaccepted findings                     | `✅ pr-review: PASSED`                 | `success`     |
 | Zero unaccepted findings + accepted exception | `🟡 pr-review: PASSED WITH NOTES`      | `success`     |
 
@@ -614,7 +687,28 @@ Final P0 is reserved for findings that are all three:
 2. **Severe and concrete** — failure causes security breach, data loss/integrity break, unrecoverable workflow break, or equivalent critical impact.
 3. **Must be handled in this PR** — not already an accepted out-of-scope item, follow-up, or design trade-off.
 
-`Cross-service` or `Data layer` blast may escalate severity only when the three P0 conditions hold. Otherwise prefer P1 for factual defects, P2 for optional hardening, or Q for spec/design decisions. Downgrades caused by accepted scope or design context must be visible in `Accepted exceptions` or `Severity adjustments`.
+`Cross-service` or `Data layer` blast may escalate severity only when the three P0 conditions hold. Otherwise apply the [P1 calibration](#p1-calibration) below, P2 for optional hardening, P3 for nits, or Q for spec/design decisions. Downgrades caused by accepted scope or design context must be visible in `Accepted exceptions` or `Severity adjustments`.
+
+### P1 calibration
+
+P1 is the tier that decides whether a human stops and reads. It is **not** the default landing spot for "this is factually true".
+
+A finding is P1 only if shipping it as-is would do one of three things:
+
+1. **Break behavior** — a user-visible or caller-visible operation produces a wrong result, crashes, or silently no-ops.
+2. **Leak or corrupt data** — secrets, PII, cross-tenant exposure, or a write that loses/overwrites correct data.
+3. **Block rollback or recovery** — the change cannot be reverted safely, or an incident-time control (audit marker, guard, alarm) is inoperative.
+
+Everything else is P2 at most, regardless of how certain the finding is. Specifically **not P1**:
+
+- A missing test, assertion, or scenario for behavior that is currently correct. The production code works; the finding is about future regressions. → P2 when the untested path is a real branch, P3 when it is symmetry with a sibling test.
+- A comment, docstring, tag, or index entry that is stale or inconsistent. → P2 if a reader would act on the wrong information, else P3.
+- Wording, naming, declarative-step style, or "this section should mirror that section". → P3.
+- Any failure mode whose first clause is "if a future refactor…" / "if someone later…". Drop signal (A) should already have caught it; if it survived, it is P3.
+
+**Severity is judged on the failure mode, never on the justification class.** In particular, `Justification: Asymmetric` establishes only that the finding was worth *emitting*. It does not establish a tier — a cheap fix for an unreachable problem is still a P3.
+
+**Do not assign a tier from a self-reported confidence score.** Verbalized LLM confidence is systematically overconfident and miscalibrated in one direction; at self-reported ≥0.8 a meaningful share of judgements is still wrong ([Siddiq et al., 2026](https://arxiv.org/html/2606.31159v1)). Confidence is a sort key for ordering, not a gate.
 
 ### Summary line (top of sticky)
 
@@ -740,7 +834,7 @@ Rules:
 - `Open` counts only unaccepted findings. Accepted exceptions appear in their own section and do not block `PASSED WITH NOTES`.
 - `Next action` is mandatory for `PARTIAL`, `BLOCKED`, `REVIEW BEFORE MERGE`, and `PASSED WITH NOTES`; omit only for clean `PASSED`.
 - Shape narrative mandatory when ≥2 findings; optional for 0-1
-- `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed`; one bullet per finding, sorted P0→P1→P2→Q then by file path. Omit the section entirely when all findings are closed (avoid empty heading)
+- `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed`; one bullet per finding, sorted P0→P1→P2→P3→Q then by file path. P3 rows collapse to a single `🔧 <N> nits` line once more than five exist. Omit the section entirely when all findings are closed (avoid empty heading)
 - `↪ Accepted exceptions` rendered **flat** when any finding is explicitly closed as follow-up / wontfix / by-design. Omit when empty.
 - `📊 Overview by category` always in `<details>` (collapsed); rows omitted where P0/P1/P2/Q are all zero. Collapsed by default — summary line already conveys totals; the table is for drill-down only
 - `📍 Inline comments` line shown when ≥1 P0/P1/P2 finding posted inline; omit otherwise
@@ -905,10 +999,35 @@ digraph publish {
   "Capture sticky URL" -> "Fill sticky URL in inline roots";
   "Build inline payload template" -> "Fill sticky URL in inline roots";
   "Fill sticky URL in inline roots" -> "Post inline comments";
-  "Publish commit status" -> "Done";
-  "Post inline comments" -> "Done";
+  "Publish commit status" -> "Reconcile sticky";
+  "Post inline comments" -> "Reconcile sticky";
+  "Reconcile sticky" -> "Done";
 }
 ```
+
+### Payload assertions (run before any POST)
+
+The `Evidence:` cite-or-drop rule is enforced at emission, but emission is not where it fails. Assert on the *rendered payload*, immediately before posting:
+
+1. **Evidence block is non-empty.** Every inline root must contain a `<summary>Evidence</summary>` block with at least one non-whitespace line. An empty block means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
+2. **No swallowed identifiers.** `Failure mode` and `Mitigation` must not contain a run of two or more spaces between non-space characters. That gap is where an inline-code span used to be; a body reading "若 X 期間 ␣␣ 拋例外，␣␣ 寫入 ␣␣ 而非 ␣␣" is unreadable and tells the author nothing.
+3. **Body round-trips.** Build every payload by writing the markdown to a file and passing it as a file argument (`--input`, `-F body=@file`, `--arg body "$(cat file)"`). Never interpolate finding markdown into a double-quoted shell string: backticks are command substitution there, and every `` `identifier` `` in the body silently becomes empty.
+
+A finding that fails 1 or 2 is a publishing defect, not a review finding. Fix the payload and repost, or drop it — never ship the mangled version. In a 215-finding sample this check would have caught 27 empty-Evidence posts (12%), including the highest-value finding in its MR.
+
+### Reconcile step (mandatory, never skipped)
+
+The sticky must be posted before the inline comments because the inline roots carry its permalink. That ordering means the first write of the sticky is a **claim about what will be published**, not a record of what was. Close the gap with a second write:
+
+1. Collect the outcome of every inline call — posted (with URL) or failed.
+2. Rebuild `📋 Currently open`, the `Open:` counts, the status heading, and the commit status **from the threads that actually exist**, not from the in-memory finding list.
+3. PATCH / PUT the sticky again with the reconciled body.
+
+Rules:
+
+- A finding with no successfully posted thread and no sticky row does not exist. Never leave a finding listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
+- Conversely, never let the sticky read `Open: none` while an unaccepted P0/P1 thread is live. The status line is what a merge decision is made on; if it and the threads disagree, a real defect ships.
+- If step 1 or 3 fails, the sticky must say so (`⚠️ pr-review: PARTIAL — publish incomplete`) rather than keeping the optimistic first write.
 
 ### Commands
 
@@ -952,8 +1071,12 @@ if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
   gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
     -F event=COMMENT \
     -F body="pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
-    -F 'comments=@inline-comments.json'
+    -F 'comments=@inline-comments.json' && POSTED=1
 fi
+
+# 6. reconcile — rebuild sticky.md from the threads that actually posted, then PATCH again.
+#    Mandatory; see § Reconcile step. Also re-publish the commit status if the tier moved.
+gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -f body="$(cat sticky.md)"
 ```
 
 #### GitLab (`glab`)
@@ -1004,8 +1127,14 @@ glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
 #      "old_path":"<file>","new_path":"<file>","new_line":<line>}}
 for f in discussion-*.json; do
   glab api -X POST "projects/$PROJECT/merge_requests/$IID/discussions" \
-    -H "Content-Type: application/json" --input "$f"
+    -H "Content-Type: application/json" --input "$f" \
+    && echo "$f ok" >> posted.log || echo "$f FAILED" >> posted.log
 done
+
+# 6. reconcile — rebuild sticky.md from posted.log (the threads that actually exist),
+#    then PUT the sticky again. Mandatory; see § Reconcile step.
+glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
+  -f body="$(cat sticky.md)"
 ```
 
 ### Old inline comments
