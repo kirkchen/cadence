@@ -649,8 +649,10 @@ Noise, not inaccuracy, is what makes a reviewer get ignored. Google's Tricorder 
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **P2 inline per iteration** | At most **12** P2 inline threads, dropped by ascending confidence; the remainder moves to the sticky as a counted line. P0 and P1 are **exempt from the cap entirely** — every one of them opens a thread, however many there are. A review carrying more than a handful of P0/P1 is not a volume problem to be trimmed. |
 | **P3 per review**           | At most **5** listed individually in the sticky. Beyond that render `plus <N> similar items` and drop the detail. |
-| **Iteration 2+**            | P0 / P1 only. New P2 / P3 findings are collected into one sticky line, never inline.                        |
-| **Iteration 3+**            | P0 only. Everything else goes to the sticky.                                                                |
+| **Iteration 2+**            | Only P0 / P1 open new inline threads. New P2 / P3 findings are collected into one sticky line.               |
+| **Iteration 3+**            | Only P0 / P1 open new inline threads, and P1 only when it is *new this iteration* — a P1 already carrying a thread from an earlier iteration is not re-opened. Everything else goes to the sticky. |
+
+**Precedence, when the ramp and the P0/P1 exemption disagree**: the exemption governs the *cap*, the ramp governs *eligibility*. Read them in that order — the ramp first decides which tiers may open a thread this iteration, then the cap trims only what is left over, and only P2. So on iteration 3 a new P1 opens a thread (the ramp admits it, the cap cannot cut it); a P2 does not, at any count. The ramp never suppresses a P0.
 
 The inline cap is deliberately loose. Replaying 161 real findings through these rules showed the cap doing none of the noise reduction — that came entirely from P3 leaving the inline channel — while a tighter cap (8) removed four material findings and made the effective-FP rate slightly *worse*, because material findings are not concentrated in the top tiers. Treat 12 as a guard against pathological iterations, not as a tuning knob to reach for when a review feels noisy; the tiering is where that work belongs.
 
