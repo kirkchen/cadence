@@ -62,17 +62,19 @@ The old threshold was not lax. It was *blind*: it dropped aggressively without a
 
 ## Noise floor — read this before trusting any future delta
 
-The same 47 findings, replayed twice under identical rules, produced **different verdicts on 46%**. Almost all of that is one word: one run spent its exclusions as `DROP`, the other as `Q`, and both mean "no thread". The instructions genuinely said both things in three different places, which has since been fixed by naming an outcome per signal.
+The same 47 findings, replayed twice under identical rules, first produced **different verdicts on 51%**. Almost all of that turned out to be one word: one run spent its exclusions as `DROP` (10 of them, zero `Q`), the other as `Q` (10 of them, zero `DROP`), and both mean "no thread". The instructions genuinely said both things in three places — the drop-signal heading said batch as Q, signal (E) said drop outright, and the self-check preference line said `Drop > batch`. Naming an outcome per signal fixed it, and re-measuring confirms that was the cause:
 
-What survives once that is collapsed:
+| decision | before the fix | after |
+| --- | --- | --- |
+| Full verdict (drop/keep + tier) | 51% | **17%** |
+| **Whether it opens an inline thread** | 10% | **6%** |
+| Whether it is P1 | 12% | **8%** |
 
-| decision | run-to-run disagreement |
-| --- | --- |
-| Full verdict (drop/keep + tier) | 46% |
-| **Whether it opens an inline thread** | **14%** |
-| Whether it is P1 | 7% |
+The prediction going in was that the full verdict would fall sharply while the inline decision — which was never affected by the DROP/Q confusion, since both channels skip the thread — would stay roughly where it was. It did.
 
-So: a single replay resolves differences of roughly 15 points or more. It does not resolve 5. The 50% → 35% headline is above the floor; the 25% → 18% on the prose subset is not, and is reported here as "no regression detected", not as an improvement.
+What remains is judgement, not ambiguity. All eight residual disagreements sit on two boundaries: four are P1↔P2 on prose findings that cleared a P0–P1 carve-out and then had to face the P1 gate separately, three are P2↔Q on whether drop signal (A) or (D) fires, one is P3↔Q. None is a case of the rules saying two different things.
+
+**Operationally**: a single replay resolves differences of roughly 15 points or more on the full verdict, and about 10 on the publish decision. It does not resolve 5. Of the numbers in this document, the 50% → 35% effective-FP headline is above the floor; the 25% → 18% on the prose subset is not, and is reported as "no regression detected", never as an improvement.
 
 ## Not validated
 
