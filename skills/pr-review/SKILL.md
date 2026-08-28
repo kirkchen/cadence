@@ -641,7 +641,7 @@ Noise, not inaccuracy, is what makes a reviewer get ignored. Google's Tricorder 
 
 | Cap                         | Rule                                                                                                       |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Inline per iteration**    | At most **12** inline threads. P0 and P1 are never cut. Over the cap, drop P2 by ascending confidence; the remainder moves to the sticky as a counted line. |
+| **P2 inline per iteration** | At most **12** P2 inline threads, dropped by ascending confidence; the remainder moves to the sticky as a counted line. P0 and P1 are **exempt from the cap entirely** — every one of them opens a thread, however many there are. A review carrying more than a handful of P0/P1 is not a volume problem to be trimmed. |
 | **P3 per review**           | At most **5** listed individually in the sticky. Beyond that render `plus <N> similar items` and drop the detail. |
 | **Iteration 2+**            | P0 / P1 only. New P2 / P3 findings are collected into one sticky line, never inline.                        |
 | **Iteration 3+**            | P0 only. Everything else goes to the sticky.                                                                |
