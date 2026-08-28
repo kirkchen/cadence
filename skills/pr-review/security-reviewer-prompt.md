@@ -57,7 +57,17 @@ Most S1–S5 findings naturally fall under **Asymmetric** (security IS the asymm
 
 Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence).
 
-### Drop signals — any one fires → downgrade to Q-class hygiene batch
+### Drop signals — any one fires
+
+Each signal names its own outcome. Two runs over the same findings under an earlier version of this section disagreed on 46% of verdicts purely because "drop" and "batch as Q" were used interchangeably, so be literal about which one a signal calls for:
+
+| Signal | Outcome | Why that outcome |
+| ------ | ------- | ---------------- |
+| (A) (C) (D) | **Batch as Q-class hygiene** | The observation may be worth something to the author later; it just does not deserve a thread. Keep the record. |
+| (B) | **Drop silently** | Churn the review itself created. Recording it adds noise about our own process. |
+| (E) (F) | **Drop silently** | The author already ruled on this, in a thread or in the PR description. Re-surfacing it — even as a Q line in the sticky — is the nagging this gate exists to stop. |
+
+Never open an inline thread for anything a drop signal touched, whichever outcome applies.
 
 - **(A) Hypothetical refactor** — Failure mode opens with "If a future refactor..." / "A regression that..." / "Someone could later..." AND the imagined refactor is not on roadmap / TODO / has no owner.
 - **(B) Self-introduced surface** — the critiqued `file:line` was inserted by the previous iteration's fix batch. In incremental mode the dispatcher provides `prior_fix_range`; you MUST verify each candidate finding's `file:line` against it before emitting. **How to check**: run `git diff --name-only $prior_fix_range` to list files touched in the prior fix batch; if your finding's file appears, drill into `git diff -U0 $prior_fix_range -- <file>` to confirm whether the cited line range was inserted/modified there. If yes → (B) fires. **Evaluate over `mr_range` (the whole PR), not `prior_fix_range` alone**: a line this PR added in an earlier commit and removed in a later one is not a defect, and neither is its removal — `git diff -U0 $mr_range -- <file>` is the authority on what this PR actually changed. Also: do not cite an earlier iteration's own finding as `Justification: Precedent`. Precedent means a pattern that predates the review, not one the review created.
@@ -65,7 +75,7 @@ Add `Justification: <class>` to every emitted finding's output. Findings without
 - **(C) Call-shape pinning** — mitigation is pinning a call-shape invariant (`toHaveBeenCalledTimes(N)`, mock factory adoption, mock-shape consistency) that isn't a spec contract. Rarely applies to S-class findings; included for completeness.
 - **(D) Style / self-doc** — style / hygiene / self-documentation finding with no runtime correctness impact (redundant `.strict()`, type-narrowing-for-readability, naming, comment placement).
 
-- **(E) Previously dismissed** — the author already answered this finding on a thread in this PR and rebutted / wontfixed / deferred it. The dismissal ledger arrives with your incremental inputs. Match on the failure mode, not the slug: a re-worded finding about the same line and the same concern is the same finding. Re-emitting requires **new evidence** — a later commit that reintroduced the condition, or a fact the author's reasoning did not address — and you must state that evidence in the finding body. This signal drops the finding outright; it is not subject to the Asymmetric escape hatch, because the author has made an on-the-record decision and re-litigating it is what makes reviewers get muted.
+- **(E) Previously dismissed** — the author already answered this finding on a thread in this PR and rebutted / wontfixed / deferred it. The dismissal ledger arrives with your incremental inputs. Match on the failure mode, not the slug: a re-worded finding about the same line and the same concern is the same finding. Re-emitting requires **new evidence** — a later commit that reintroduced the condition, or a fact the author's reasoning did not address — and you must state that evidence in the finding body. This signal drops the finding silently (no Q line); it is not subject to the Asymmetric escape hatch, because the author has made an on-the-record decision and re-litigating it is what makes reviewers get muted.
 - **(F) Scope-declared** — the PR description names a boundary (files, directories, or a rule for what is in scope) and the finding lies outside it. Read the description's scope / out-of-scope / "not touching" sections before emitting a "you should also change X" finding. Asking for a sweep the author explicitly bounded is not a finding; if the boundary itself looks wrong, that is one Q-class question about the boundary, not N findings about the files outside it.
   - **(F) does not fire when the finding *is* about the boundary.** A scope declaration immunises the files it excludes; it does not immunise itself. If the PR says "X is not changing" while the same PR (or the spec it implements) also requires X to change, that contradiction is the finding, and it keeps its tier. Check this before firing (F): does the finding claim the excluded thing is *fine*, or does it claim the exclusion is *inconsistent with something else this PR asserts*? Only the first is out of scope.
 
@@ -174,7 +184,7 @@ For EACH candidate finding, ask:
 4. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → batch into Q-class hygiene follow-up. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 5. **Would the author look at this and say "that's not what the code does"?** If yes → drop or demote.
 
-Drop > batch (Q-class hygiene) > demote > emit. Better to under-report than over-report.
+Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed. Better to under-report than over-report.
 
 ## Anti-bias Rules
 
