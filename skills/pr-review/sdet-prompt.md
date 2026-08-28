@@ -139,6 +139,8 @@ Notes: <optional>
 
 **Cite-or-drop rule**: no `Evidence:` line = no finding.
 
+**There is no 🔧 P3 in this schema, and that is deliberate.** P3 is derived by the dispatcher, never emitted by you: it is where the P1 gate and the prose ceiling land a finding after the fact. Emit the honest base severity for what you found (🚨 / ⚠️ / 💡 / ❓) and let the dispatcher demote. Pre-emptively filing something as a nit to be helpful removes the dispatcher's ability to see what you actually judged.
+
 After findings:
 
 ```
@@ -175,13 +177,18 @@ Preference when more than one outcome is defensible: drop > batch (Q-class hygie
 ## Anti-bias Rules
 
 - You did NOT write this code
-- You did NOT see prior discussion
+- You did NOT see prior discussion (the dismissal ledger and PR scope declaration are the two exceptions — see below)
 - You did NOT see other subagents' findings
 - Trust ONLY the diff (and grep results when has_repo=true)
 - Resist: "Tests are always good, more tests are better" — only flag tests that close real coverage gaps
 - Resist: "I should propose a test for every changed line" — pure rename, comment-only, type-only changes don't need tests
 - Resist: "I should produce N findings to look thorough" — zero findings is valid (e.g. small refactor with existing test coverage)
 - For T4 mock-heavy detection: ≥50% of asserts being mock-call assertions = ⚠️ Factual; <50% = drop or 💡 at most
+
+
+**Where these rules stop.** They govern where a finding's *evidence* may come from — the diff, and grep when `has_repo`. They do **not** govern the suppression gate. Drop signals (E) and (F) read two durable PR artifacts on purpose: the dismissal ledger and the PR description's scope declaration. That is not "prior discussion" and it does not soften what you look for; it stops you re-filing something the author already answered on the record, or demanding a sweep they explicitly bounded.
+
+Keep the two directions apart. Author narrative may never talk you *out of reading the code* or *into* believing a line is fine — that is the bias these rules exist to block. It may tell you this exact finding has already been ruled on. Read the code first, form the finding, and only then check the ledger.
 
 ## Worked Examples
 

@@ -1109,14 +1109,16 @@ The sticky must be posted before the inline comments because the inline roots ca
 
 1. Collect the outcome of every inline call — posted (with URL) or failed.
 2. Rebuild `📋 Currently open`, the `Open:` counts, the status heading, and the commit status. Reconciliation runs over **two** populations, and conflating them is how a review publishes a false pass:
-   - **Thread-backed findings (P0 / P1 / P2)** — these are rebuilt *from the threads that actually exist*, not from the in-memory list. A P0–P2 whose inline call failed did not reach the reader.
-   - **Sticky-only findings (P3, Q) and findings carried over from earlier iterations** — these never had a thread by design, so "no thread" is their normal state, not evidence of a failed post. They are carried into the reconciled sticky unchanged, from the merged finding list.
+   - **Findings this iteration tried to post inline** — rebuilt *from the threads that actually exist*, not from the in-memory list. One whose inline call failed did not reach the reader.
+   - **Findings this iteration deliberately did not post inline** — every P3 and Q, plus any P2 held back by the [volume cap](#volume-caps-applied-after-merge-dedup-before-publish) or the iteration ramp, plus findings carried over from earlier iterations. For these, "no thread" is the intended state, not evidence of a failed post. They carry into the reconciled sticky unchanged, from the merged finding list.
+
+   The split is by **what this iteration attempted**, not by tier. Reading it as "P0–P2 come from threads" silently deletes exactly the P2s the caps just suppressed — the ones with the weakest confidence, which is a defensible thing to hold back from a thread and never a defensible thing to erase. Keep the attempted-inline list from the publish step and reconcile against that list, not against a tier range.
 3. PATCH / PUT the sticky again with the reconciled body.
 
 Rules:
 
-- A **P0–P2** finding with no successfully posted thread and no sticky row does not exist. Never leave one listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
-- A P3 or Q row is never removed for lacking a thread. If reconciliation drops the sticky-only tiers, an all-P3 review reconciles to `Open: none` and publishes `PASSED` over real findings.
+- A finding this iteration **attempted** to post inline, which then has no successfully posted thread and no sticky row, does not exist. Never leave one listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
+- A row is never removed merely for lacking a thread. If reconciliation drops the deliberately-sticky-only population, an all-P3 review reconciles to `Open: none` and publishes `PASSED` over real findings — and a capped iteration quietly loses its overflow P2s the same way.
 - Conversely, never let the sticky read `Open: none` while an unaccepted P0/P1 thread is live. The status line is what a merge decision is made on; if it and the threads disagree, a real defect ships.
 - If step 1 or 3 fails, the sticky must say so (`⚠️ pr-review: PARTIAL — publish incomplete`) rather than keeping the optimistic first write.
 
@@ -1136,19 +1138,25 @@ Pick endpoints by `$PLATFORM` (see [Platform](#platform)). The five steps are id
 #### GitHub (`gh`)
 
 ```bash
+# 0. per-run payload dir — every file this run writes lives here. Two reviews running at
+#    once (different PRs, same checkout) otherwise share `sticky.md` / `inline-comments.json`
+#    in the working directory and cross-post each other's bodies.
+PAYLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-$OWNER-$REPO-$N-XXXXXX")
+trap 'rm -rf "$PAYLOAD_DIR"' EXIT
+
 # 1. find sticky id (may be empty)
 STICKY_ID=$(gh api repos/$OWNER/$REPO/issues/$N/comments \
   --jq '.[] | select(.body | contains("<!-- pr-review:sticky -->")) | .id' | head -1)
 
-# 2. build sticky.md (markers above)
+# 2. build "$PAYLOAD_DIR/sticky.md" (markers above)
 
 # 3. create when none exists, else PATCH in place — capture BOTH id and permalink.
 #    The id is what step 6 edits; on a first run it only exists after this POST,
 #    so capture it here or reconcile silently PATCHes an empty id.
 if [ -z "$STICKY_ID" ]; then
-  STICKY_JSON=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments -F body=@sticky.md)
+  STICKY_JSON=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments -F body=@"$PAYLOAD_DIR/sticky.md")
 else
-  STICKY_JSON=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@sticky.md)
+  STICKY_JSON=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@"$PAYLOAD_DIR/sticky.md")
 fi
 STICKY_ID=$(printf '%s' "$STICKY_JSON" | jq -r '.id')
 STICKY_URL=$(printf '%s' "$STICKY_JSON" | jq -r '.html_url')
@@ -1160,18 +1168,19 @@ gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
   -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 
 # 5. inline — one batched review. Skip when none this iteration.
-# inline-comments.json: [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
-if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
+# Write it as "$PAYLOAD_DIR/inline-comments.json":
+# [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
+if [ "$(jq 'length' "$PAYLOAD_DIR/inline-comments.json")" -gt 0 ]; then
   gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
     -F event=COMMENT \
     -F body="pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
-    -F 'comments=@inline-comments.json' && POSTED=1
+    -F comments=@"$PAYLOAD_DIR/inline-comments.json" && POSTED=1
 fi
 
 # 6. reconcile — rebuild sticky.md from the threads that actually posted, then PATCH again.
 #    Mandatory; see § Reconcile step. Pass the body as a FILE (never interpolated into a
 #    shell string — backticks in finding markdown are command substitution there).
-gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@sticky.md
+gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@"$PAYLOAD_DIR/sticky.md"
 
 # 7. re-publish the commit status from the reconciled sticky. Step 4 published the tier
 #    predicted before inline posting; if inline calls failed, that tier is now wrong and
@@ -1193,6 +1202,11 @@ glab api user >/dev/null 2>&1 || { echo "glab not authed for $GITLAB_HOST — AB
 eval $(glab api "projects/$PROJECT/merge_requests/$IID" \
   | jq -r '"MR_URL=\(.web_url) BASE=\(.diff_refs.base_sha) START=\(.diff_refs.start_sha) HEAD=\(.diff_refs.head_sha)"')
 
+# 0c. per-run payload dir — every payload this run writes lives here and nowhere else, so
+#     no iteration reads another's leftovers and no concurrent review shares a filename.
+PAYLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-$IID-XXXXXX")
+trap 'rm -rf "$PAYLOAD_DIR"' EXIT
+
 # 1. find sticky notes; --paginate + `jq -s add` so an early sticky isn't lost past page 1
 #    (GitLab returns notes newest-first; in-place edits keep the sticky at its original created_at).
 #    newest matching id is canonical, older matches are stale duplicates.
@@ -1200,15 +1214,15 @@ MATCHES=$(glab api --paginate "projects/$PROJECT/merge_requests/$IID/notes?per_p
   | jq -s 'add | [.[] | select(.body | contains("<!-- pr-review:sticky -->"))]')
 STICKY_ID=$(echo "$MATCHES" | jq -r 'max_by(.id).id // empty')
 
-# 2. build sticky.md (same markers as GitHub)
+# 2. build "$PAYLOAD_DIR/sticky.md" (same markers as GitHub)
 
 # 3. create when none exists, else PUT the newest in place + DELETE the stale duplicates (self-heal)
 if [ -z "$STICKY_ID" ]; then
   STICKY_ID=$(glab api -X POST "projects/$PROJECT/merge_requests/$IID/notes" \
-    --field body=@sticky.md | jq -r '.id')
+    --field body=@"$PAYLOAD_DIR/sticky.md" | jq -r '.id')
 else
   glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
-    --field body=@sticky.md > /dev/null
+    --field body=@"$PAYLOAD_DIR/sticky.md" > /dev/null
   echo "$MATCHES" | jq -r ".[] | select(.id != $STICKY_ID) | .id" | while read -r OLD; do
     glab api -X DELETE "projects/$PROJECT/merge_requests/$IID/notes/$OLD"
   done
@@ -1220,15 +1234,10 @@ glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
   -f state="$STATUS_STATE" -f name="pr-review" \
   -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 
-# 4b. per-run payload dir — every payload this run writes lives here and nowhere else,
-#     so no iteration ever reads another's leftovers.
-PAYLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-$IID-XXXXXX")
-trap 'rm -rf "$PAYLOAD_DIR"' EXIT
-
 # 5. inline — ONE discussion per finding; position MUST travel as a JSON body via --input.
 #    `-f "position[...]"` flags are silently dropped → un-anchored DiscussionNote.
-#    discussion-<n>.json (old_path == new_path; for an added/context line set
-#    new_line and omit old_line):
+#    Write each payload as "$PAYLOAD_DIR/discussion-<n>.json" — the loop below only reads
+#    from there (old_path == new_path; for an added/context line set new_line, omit old_line):
 #    {"body":"<root markdown>","position":{"position_type":"text",
 #      "base_sha":"$BASE","start_sha":"$START","head_sha":"$HEAD",
 #      "old_path":"<file>","new_path":"<file>","new_line":<line>}}
@@ -1250,7 +1259,7 @@ done
 #    then PUT the sticky again. Mandatory; see § Reconcile step. The body travels as a
 #    JSON file, never interpolated into a shell string: backticks in finding markdown are
 #    command substitution inside double quotes, which is how inline code silently vanishes.
-jq -Rs '{body: .}' < sticky.md > "$PAYLOAD_DIR/sticky-body.json"
+jq -Rs '{body: .}' < "$PAYLOAD_DIR/sticky.md" > "$PAYLOAD_DIR/sticky-body.json"
 glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
   -H "Content-Type: application/json" --input "$PAYLOAD_DIR/sticky-body.json"
 
