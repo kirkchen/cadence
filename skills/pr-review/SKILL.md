@@ -733,7 +733,7 @@ The first visible line of the sticky is always the status heading. Do not prepen
 ```
 ## <status-heading>
 
-**Open**: <none | P0×N, P1×N, P2×N, Q×N — only non-zero> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
+**Open**: <none | P0×N, P1×N, P2×N, P3×N, Q×N — only non-zero> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
 **Checked**: ✅ <N> clean
 **Next action**: <one-line: optional for PASSED, required otherwise>
 ```
@@ -748,7 +748,7 @@ Examples:
 
 ## 🟡 pr-review: PASSED WITH NOTES
 
-**Open**: P2×1, Q×1 · **Reviewed HEAD**: `abc1234` · **Mode**: full
+**Open**: P2×1, P3×3, Q×1 · **Reviewed HEAD**: `abc1234` · **Mode**: full
 **Checked**: ✅ 11 clean
 **Next action**: optional; no blocker
 
@@ -847,7 +847,7 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 Rules:
 
 - The first visible line MUST be the status heading. Do not render bot attribution before it.
-- `Open` counts only unaccepted findings. Accepted exceptions appear in their own section and do not block `PASSED WITH NOTES`.
+- `Open` counts only unaccepted findings, across **every** tier including P3 — a review whose findings are all P3 reports `Open: P3×N`, never `Open: none`. `none` means zero findings at any tier. Accepted exceptions appear in their own section and do not block `PASSED WITH NOTES`.
 - `Next action` is mandatory for `PARTIAL`, `BLOCKED`, `REVIEW BEFORE MERGE`, and `PASSED WITH NOTES`; omit only for clean `PASSED`.
 - Shape narrative mandatory when ≥2 findings; optional for 0-1
 - `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed`; one bullet per finding, sorted P0→P1→P2→P3→Q then by file path. P3 rows collapse to a single `🔧 <N> nits` line once more than five exist. Omit the section entirely when all findings are closed (avoid empty heading)
