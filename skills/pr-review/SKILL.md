@@ -494,7 +494,9 @@ Run before dispatch on every incremental iteration. Without it the review re-lit
 
 **A ledger entry silences the review; it does not clear the finding.** The author writing "wontfix" is a *requested* disposition, and requests do not approve themselves — an author who could close their own P0 by replying to it would have a one-comment bypass around every security finding this skill produces. So the ledger governs re-emission only: the finding stays in `📋 Currently open`, stays in the status-tier calculation, and keeps `REVIEW BEFORE MERGE` / `BLOCKED` on the sticky.
 
-Moving a finding to `↪ Accepted exceptions` — the section that *does* stop it blocking — requires a disposition from someone other than the PR author: a maintainer, a reviewer, or `pr-babysit` acting on a human's instruction. Record who accepted it. If the PR author is also the only maintainer, that is a fact about the repo, not a reason for the skill to auto-accept: they accept it explicitly, and the sticky shows who did.
+Moving a finding to `↪ Accepted exceptions` — the section that *does* stop it blocking — requires `accepted_by` to name someone who is **not the PR author**. The skill never writes that field from an author reply, in any circumstance. There is no sole-maintainer carve-out: a repo with one maintainer still gets `REVIEW BEFORE MERGE` on the sticky, and that maintainer merges anyway if they judge it right. Merging over an open finding is a human action with a name attached to it; silently recolouring the finding as accepted is not, and a carve-out that lets the author supply their own `accepted_by` is the same one-comment bypass written a second way.
+
+The skill has no way to authenticate who is speaking, so it does not try: it refuses to accept on anyone's behalf and leaves the status honest. Acceptance reaches the sticky through `pr-babysit`, whose caller is the human, or through explicit invocation input naming the accepter.
 
 4. Pass the ledger to every subagent alongside prior findings. Subagents apply drop signal **(E)** against it.
 
