@@ -1038,12 +1038,15 @@ A finding that fails 1 or 2 is a publishing defect, not a review finding. Fix th
 The sticky must be posted before the inline comments because the inline roots carry its permalink. That ordering means the first write of the sticky is a **claim about what will be published**, not a record of what was. Close the gap with a second write:
 
 1. Collect the outcome of every inline call — posted (with URL) or failed.
-2. Rebuild `📋 Currently open`, the `Open:` counts, the status heading, and the commit status **from the threads that actually exist**, not from the in-memory finding list.
+2. Rebuild `📋 Currently open`, the `Open:` counts, the status heading, and the commit status. Reconciliation runs over **two** populations, and conflating them is how a review publishes a false pass:
+   - **Thread-backed findings (P0 / P1 / P2)** — these are rebuilt *from the threads that actually exist*, not from the in-memory list. A P0–P2 whose inline call failed did not reach the reader.
+   - **Sticky-only findings (P3, Q) and findings carried over from earlier iterations** — these never had a thread by design, so "no thread" is their normal state, not evidence of a failed post. They are carried into the reconciled sticky unchanged, from the merged finding list.
 3. PATCH / PUT the sticky again with the reconciled body.
 
 Rules:
 
-- A finding with no successfully posted thread and no sticky row does not exist. Never leave a finding listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
+- A **P0–P2** finding with no successfully posted thread and no sticky row does not exist. Never leave one listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
+- A P3 or Q row is never removed for lacking a thread. If reconciliation drops the sticky-only tiers, an all-P3 review reconciles to `Open: none` and publishes `PASSED` over real findings.
 - Conversely, never let the sticky read `Open: none` while an unaccepted P0/P1 thread is live. The status line is what a merge decision is made on; if it and the threads disagree, a real defect ships.
 - If step 1 or 3 fails, the sticky must say so (`⚠️ pr-review: PARTIAL — publish incomplete`) rather than keeping the optimistic first write.
 
