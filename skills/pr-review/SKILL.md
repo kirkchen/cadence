@@ -486,11 +486,15 @@ Run before dispatch on every incremental iteration. Without it the review re-lit
 
 | Ledger entry | Author's reply says                                              | Effect on this and later iterations                          |
 | ------------ | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `rebutted`   | the finding's premise is wrong (with reasoning or counter-evidence) | Do not re-emit. Record under `↪ Accepted exceptions` as `by-design` or `disputed` with the author's one-line reason. |
-| `wontfix`    | correct but deliberately not fixed here                            | Do not re-emit. Record under `↪ Accepted exceptions`.        |
-| `deferred`   | accepted, handled in a follow-up / later MR                        | Do not re-emit. Record with the follow-up reference if given. |
+| `rebutted`   | the finding's premise is wrong (with reasoning or counter-evidence) | Stop re-emitting. Render under `📋 Currently open` as `⏸️ Author disputes — <reason>`, still counted. |
+| `wontfix`    | correct but deliberately not fixed here                            | Stop re-emitting. Render under `📋 Currently open` as `⏸️ Author wontfix — <reason>`, still counted. |
+| `deferred`   | accepted, handled in a follow-up / later MR                        | Stop re-emitting. Render as `⏸️ Author defers — <follow-up ref>`, still counted. |
 | `fixed`      | claims a fix                                                       | Verify normally against the diff; re-emit only with `🔄 Still present` evidence. |
 | `unclear`    | reply exists but states no disposition                             | Treat as no reply.                                            |
+
+**A ledger entry silences the review; it does not clear the finding.** The author writing "wontfix" is a *requested* disposition, and requests do not approve themselves — an author who could close their own P0 by replying to it would have a one-comment bypass around every security finding this skill produces. So the ledger governs re-emission only: the finding stays in `📋 Currently open`, stays in the status-tier calculation, and keeps `REVIEW BEFORE MERGE` / `BLOCKED` on the sticky.
+
+Moving a finding to `↪ Accepted exceptions` — the section that *does* stop it blocking — requires a disposition from someone other than the PR author: a maintainer, a reviewer, or `pr-babysit` acting on a human's instruction. Record who accepted it. If the PR author is also the only maintainer, that is a fact about the repo, not a reason for the skill to auto-accept: they accept it explicitly, and the sticky shows who did.
 
 4. Pass the ledger to every subagent alongside prior findings. Subagents apply drop signal **(E)** against it.
 
