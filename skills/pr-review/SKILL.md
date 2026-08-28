@@ -1065,14 +1065,17 @@ STICKY_ID=$(gh api repos/$OWNER/$REPO/issues/$N/comments \
 
 # 2. build sticky.md (markers above)
 
-# 3. create when none exists, else PATCH in place — capture the permalink
+# 3. create when none exists, else PATCH in place — capture BOTH id and permalink.
+#    The id is what step 6 edits; on a first run it only exists after this POST,
+#    so capture it here or reconcile silently PATCHes an empty id.
 if [ -z "$STICKY_ID" ]; then
-  STICKY_URL=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments \
-    -F body=@sticky.md --jq '.html_url')
+  STICKY_JSON=$(gh api -X POST repos/$OWNER/$REPO/issues/$N/comments -F body=@sticky.md)
 else
-  STICKY_URL=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID \
-    -F body=@sticky.md --jq '.html_url')
+  STICKY_JSON=$(gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@sticky.md)
 fi
+STICKY_ID=$(printf '%s' "$STICKY_JSON" | jq -r '.id')
+STICKY_URL=$(printf '%s' "$STICKY_JSON" | jq -r '.html_url')
+[ -n "$STICKY_ID" ] && [ "$STICKY_ID" != "null" ] || { echo "STOP: sticky id not captured"; exit 1; }
 
 # 4. PR-header-visible commit status
 gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
@@ -1089,8 +1092,16 @@ if [ "$(jq 'length' inline-comments.json)" -gt 0 ]; then
 fi
 
 # 6. reconcile — rebuild sticky.md from the threads that actually posted, then PATCH again.
-#    Mandatory; see § Reconcile step. Also re-publish the commit status if the tier moved.
-gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -f body="$(cat sticky.md)"
+#    Mandatory; see § Reconcile step. Pass the body as a FILE (never interpolated into a
+#    shell string — backticks in finding markdown are command substitution there).
+gh api -X PATCH repos/$OWNER/$REPO/issues/comments/$STICKY_ID -F body=@sticky.md
+
+# 7. re-publish the commit status from the reconciled sticky. Step 4 published the tier
+#    predicted before inline posting; if inline calls failed, that tier is now wrong and
+#    it is the thing merge decisions read.
+gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
+  -f state="$STATUS_STATE" -f context="pr-review" \
+  -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 ```
 
 #### GitLab (`glab`)
@@ -1146,9 +1157,18 @@ for f in discussion-*.json; do
 done
 
 # 6. reconcile — rebuild sticky.md from posted.log (the threads that actually exist),
-#    then PUT the sticky again. Mandatory; see § Reconcile step.
+#    then PUT the sticky again. Mandatory; see § Reconcile step. The body travels as a
+#    JSON file, never interpolated into a shell string: backticks in finding markdown are
+#    command substitution inside double quotes, which is how inline code silently vanishes.
+jq -Rs '{body: .}' < sticky.md > sticky-body.json
 glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
-  -f body="$(cat sticky.md)"
+  -H "Content-Type: application/json" --input sticky-body.json
+
+# 7. re-publish the commit status from the reconciled sticky — step 4 published the tier
+#    predicted before inline posting, and posted.log may have changed it.
+glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
+  -f state="$STATUS_STATE" -f name="pr-review" \
+  -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 ```
 
 ### Old inline comments
