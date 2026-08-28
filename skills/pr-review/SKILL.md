@@ -427,11 +427,13 @@ Compute before dispatch:
 | `has_spec`   | false   | spec input present OR PR description has goal/requirement section | dispatch spec-auditor    |
 | `has_repo`   | true    | repo access available (grep / index / LSP)                        | enable cross-file checks |
 | `is_trivial` | false   | <50 LOC AND (docs-only OR pure rename OR pure type-only)          | skip staff-engineer      |
-| `is_prose`   | false   | ≥80% of changed lines are prose/spec files (`.md`, `.feature`, `.rst`, `.adoc`, docs-site config) | apply [prose severity ceiling](#prose-severity-ceiling) |
+| `is_prose`   | —       | **per finding**, not per PR: the file the finding cites is a prose/spec file (`.md`, `.feature`, `.rst`, `.adoc`, docs-site config) | apply [prose severity ceiling](#prose-severity-ceiling) to that finding |
 
 ### Prose severity ceiling
 
-Applies when `is_prose` is set. Do **not** skip review of prose diffs — in a repo whose product *is* prose (prompts, specs, runbooks), the text is the behavior. The problem is the opposite one: prose offers an unbounded supply of mechanically enumerable defects (every scenario missing a trace tag, every Then step that is not purely declarative, every section whose sibling has an error path), so an enumerating reviewer produces far more findings on a document than on the code it describes, in inverse proportion to the risk. Prose and config can be polished forever; the ceiling is what stops that.
+Applies to any finding whose cited file is prose, **whether or not the PR as a whole looks like a docs PR**. This is deliberately per-finding: a PR that is 70% Python and 30% `.feature` files is not a docs PR, but its findings *on the feature files* have exactly the shape this ceiling exists to bound. Replaying 215 real findings, a per-PR flag at any threshold missed 19 prose findings sitting inside code-heavy PRs — including every finding on the PR with the worst nit rate in the sample, where more than half the findings cited `.feature` and `.md` files while the diff itself was mostly code.
+
+Do **not** skip review of prose diffs — in a repo whose product *is* prose (prompts, specs, runbooks), the text is the behavior. The problem is the opposite one: prose offers an unbounded supply of mechanically enumerable defects (every scenario missing a trace tag, every Then step that is not purely declarative, every section whose sibling has an error path), so an enumerating reviewer produces far more findings on a document than on the code it describes, in inverse proportion to the risk. Prose and config can be polished forever; the ceiling is what stops that.
 
 Under `is_prose`, these classes are capped at **P3** no matter how certain the finding:
 
@@ -476,8 +478,10 @@ Do not include:
 
 Run before dispatch on every incremental iteration. Without it the review re-litigates settled findings: the author writes "wontfix, out of scope, here is why" in the thread, the next iteration never sees it, and the same finding comes back — which is the single most-cited reason developers stop trusting a review bot, and the thing they credit tools that *do* carry state with fixing.
 
-1. Fetch every finding thread on the PR (GitHub: review comment threads; GitLab: discussions whose root carries `pr-review:finding-root`).
-2. For each thread, take the author's replies — non-system notes not authored by the review identity.
+1. Fetch **both** reply channels. Authors use whichever is available, and the more considered the rebuttal, the more likely it is not in a thread:
+   - **In-thread** — GitHub review comment threads; GitLab discussions whose root carries `pr-review:finding-root`.
+   - **Standalone PR/MR comments** — top-level notes not attached to any diff position. A finding published without a line anchor (every Q-class item, every file-level finding) has **no thread to reply in**, so this is the only channel its author has. Long rebuttals also land here because the threading UI is cramped. In the sample this work came from, every substantive rebuttal on two of the MRs was a standalone note, one of them opening with "no inline thread for this one, so replying here".
+2. Take the author's notes from both channels — non-system, not authored by the review identity. For standalone notes, attribute them to findings by the ids they name (`F5`, `F12`) or by the category slug they quote; a note naming no finding is not ledger material.
 3. Classify each replied-to finding into the dismissal ledger:
 
 | Ledger entry | Author's reply says                                              | Effect on this and later iterations                          |
