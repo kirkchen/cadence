@@ -442,6 +442,8 @@ Under `is_prose`, these classes are capped at **P3** no matter how certain the f
 - Counts and totals that drifted (`11 items` → `12 items`)
 - Sweep completeness — "the same term also appears in N files outside this diff" (also check drop signal (F) scope-declared)
 
+**Check the P0–P1 list below first.** The capped classes are shapes, not subjects: a finding *shaped* like "this section does not state X" is capped only after it fails every carve-out. In a replay of these rules, an unstated default-open permission was filed as a symmetry gap and capped at P3 — it belongs to the last carve-out and should have stayed P1. Match against the carve-outs, then fall through to the cap.
+
 These keep full P0–P1 eligibility under `is_prose`:
 
 - The document contradicts **itself** in a way that yields two incompatible implementations
@@ -633,10 +635,12 @@ Noise, not inaccuracy, is what makes a reviewer get ignored. Google's Tricorder 
 
 | Cap                         | Rule                                                                                                       |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Inline per iteration**    | At most **8** inline threads. Over the cap: keep P0 → P1 → P2 by severity, then by confidence; the remainder moves to the sticky as a counted line. |
+| **Inline per iteration**    | At most **12** inline threads. P0 and P1 are never cut. Over the cap, drop P2 by ascending confidence; the remainder moves to the sticky as a counted line. |
 | **P3 per review**           | At most **5** listed individually in the sticky. Beyond that render `plus <N> similar items` and drop the detail. |
 | **Iteration 2+**            | P0 / P1 only. New P2 / P3 findings are collected into one sticky line, never inline.                        |
 | **Iteration 3+**            | P0 only. Everything else goes to the sticky.                                                                |
+
+The inline cap is deliberately loose. Replaying 161 real findings through these rules showed the cap doing none of the noise reduction — that came entirely from P3 leaving the inline channel — while a tighter cap (8) removed four material findings and made the effective-FP rate slightly *worse*, because material findings are not concentrated in the top tiers. Treat 12 as a guard against pathological iterations, not as a tuning knob to reach for when a review feels noisy; the tiering is where that work belongs.
 
 Rationale for the iteration ramp: a one-line fix must not reach round seven on style. Author-reported fatigue with incremental AI review is specifically that "after the initial review, subsequent comments on revised pull requests often become redundant and unhelpful" ([Cihan et al., 2024](https://arxiv.org/pdf/2412.18531)).
 
