@@ -346,14 +346,14 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
   "last_sha": "<sha or null>",
   "status": "PASSED | PASSED_WITH_NOTES | REVIEW_BEFORE_MERGE | BLOCKED | PARTIAL | NOOP",
   "status_heading": "✅ pr-review: PASSED | 🟡 pr-review: PASSED WITH NOTES | 🟠 pr-review: REVIEW BEFORE MERGE | 🔴 pr-review: BLOCKED | ⚠️ pr-review: PARTIAL",
-  "open_counts": { "P0": 0, "P1": 0, "P2": 0, "Q": 0 },
+  "open_counts": { "P0": 0, "P1": 0, "P2": 0, "P3": 0, "Q": 0 },
   "subagent_failures": [],
   "next_action": "<one-line or null>",
   "findings": [
     {
       "id": "F1",
-      "p_code": "P0 | P1 | P2 | Q",
-      "severity_emoji": "🚨 | ⚠️ | 💡 | ❓",
+      "p_code": "P0 | P1 | P2 | P3 | Q",
+      "severity_emoji": "🚨 | ⚠️ | 💡 | 🔧 | ❓",
       "slug": "kebab-case-slug",
       "category": "Original [code name] from subagent",
       "file": "path/to/file",
@@ -366,13 +366,13 @@ Skip Publishing. Skip sticky/inline markdown construction. Emit one JSON documen
       "mitigation": "one-line",
       "evidence": "verbatim diff line(s)",
       "details": "optional multi-line",
-      "disposition": "open | likely_fixed | still_present | follow_up | wontfix | by_design",
-      "accepted_exception": null | { "kind": "follow_up | wontfix | by_design", "reason": "...", "issue": "#123 or null" },
-      "severity_adjustment": null | { "from": "💡 P2", "to": "⚠️ P1", "reason": "..." }
+      "disposition": "open | likely_fixed | still_present | follow_up | wontfix | by_design | disputed",
+      "accepted_exception": null | { "kind": "follow_up | wontfix | by_design", "reason": "...", "issue": "#123 or null", "accepted_by": "<who — never the PR author>" },
+      "severity_adjustment": null | { "from": "💡 P2", "to": "🔧 P3", "reason": "..." }
     }
   ],
   "accepted_exceptions": [
-    { "finding_id": "F2", "kind": "follow_up | wontfix | by_design", "reason": "one-line", "issue": "#123 or null" }
+    { "finding_id": "F2", "kind": "follow_up | wontfix | by_design", "reason": "one-line", "issue": "#123 or null", "accepted_by": "<who — never the PR author>" }
   ],
   "spec_gaps": [
     {
@@ -818,9 +818,9 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 <details><summary>📊 Overview by category</summary>
 
-| Category |  P0 |  P1 |  P2 |   Q | Files                         |
-| -------- | --: | --: | --: | --: | ----------------------------- |
-| `<slug>` |   N |   N |   N |   N | <file paths, comma-separated> |
+| Category |  P0 |  P1 |  P2 |  P3 |   Q | Files                         |
+| -------- | --: | --: | --: | --: | --: | ----------------------------- |
+| `<slug>` |   N |   N |   N |   N |   N | <file paths, comma-separated> |
 
 </details>
 
@@ -850,7 +850,7 @@ Rules:
 - Shape narrative mandatory when ≥2 findings; optional for 0-1
 - `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed`; one bullet per finding, sorted P0→P1→P2→P3→Q then by file path. P3 rows collapse to a single `🔧 <N> nits` line once more than five exist. Omit the section entirely when all findings are closed (avoid empty heading)
 - `↪ Accepted exceptions` rendered **flat** when any finding is explicitly closed as follow-up / wontfix / by-design. Omit when empty.
-- `📊 Overview by category` always in `<details>` (collapsed); rows omitted where P0/P1/P2/Q are all zero. Collapsed by default — summary line already conveys totals; the table is for drill-down only
+- `📊 Overview by category` always in `<details>` (collapsed); rows omitted where P0/P1/P2/P3/Q are all zero. Collapsed by default — summary line already conveys totals; the table is for drill-down only
 - `📍 Inline comments` line shown when ≥1 P0/P1/P2 finding posted inline; omit otherwise
 - `Severity adjustments` rendered **flat** (no `<details>`) when any adjustment exists — discipline requirement, never silent
 - `🔄 Last iteration changes` rendered **flat** in incremental mode; shows ONLY this iter's verifications (`<last_sha>..<HEAD>`), never cumulative across older iterations. Audit trail for older iters lives in git history (commits + prior inline comment threads), not in the sticky
