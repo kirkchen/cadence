@@ -1150,6 +1150,11 @@ glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
   -f state="$STATUS_STATE" -f name="pr-review" \
   -f target_url="$STICKY_URL" -f description="$STATUS_DESCRIPTION"
 
+# 4b. per-run payload dir — every payload this run writes lives here and nowhere else,
+#     so no iteration ever reads another's leftovers.
+PAYLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-$IID-XXXXXX")
+trap 'rm -rf "$PAYLOAD_DIR"' EXIT
+
 # 5. inline — ONE discussion per finding; position MUST travel as a JSON body via --input.
 #    `-f "position[...]"` flags are silently dropped → un-anchored DiscussionNote.
 #    discussion-<n>.json (old_path == new_path; for an added/context line set
@@ -1157,19 +1162,27 @@ glab api -X POST "projects/$PROJECT/statuses/$HEAD" \
 #    {"body":"<root markdown>","position":{"position_type":"text",
 #      "base_sha":"$BASE","start_sha":"$START","head_sha":"$HEAD",
 #      "old_path":"<file>","new_path":"<file>","new_line":<line>}}
-for f in discussion-*.json; do
-  glab api -X POST "projects/$PROJECT/merge_requests/$IID/discussions" \
-    -H "Content-Type: application/json" --input "$f" \
-    && echo "$f ok" >> posted.log || echo "$f FAILED" >> posted.log
+# Payload dir is per-run and posted.log is truncated, not appended: a stale log from a
+# previous iteration reconciles this iteration against threads that are not on this diff.
+# The find/-print0 form also avoids the literal `discussion-*.json` a no-match glob leaves behind.
+: > "$PAYLOAD_DIR/posted.log"
+find "$PAYLOAD_DIR" -maxdepth 1 -name 'discussion-*.json' -print0 |
+while IFS= read -r -d '' f; do
+  if glab api -X POST "projects/$PROJECT/merge_requests/$IID/discussions" \
+       -H "Content-Type: application/json" --input "$f"; then
+    echo "$(basename "$f") ok" >> "$PAYLOAD_DIR/posted.log"
+  else
+    echo "$(basename "$f") FAILED" >> "$PAYLOAD_DIR/posted.log"
+  fi
 done
 
 # 6. reconcile — rebuild sticky.md from posted.log (the threads that actually exist),
 #    then PUT the sticky again. Mandatory; see § Reconcile step. The body travels as a
 #    JSON file, never interpolated into a shell string: backticks in finding markdown are
 #    command substitution inside double quotes, which is how inline code silently vanishes.
-jq -Rs '{body: .}' < sticky.md > sticky-body.json
+jq -Rs '{body: .}' < sticky.md > "$PAYLOAD_DIR/sticky-body.json"
 glab api -X PUT "projects/$PROJECT/merge_requests/$IID/notes/$STICKY_ID" \
-  -H "Content-Type: application/json" --input sticky-body.json
+  -H "Content-Type: application/json" --input "$PAYLOAD_DIR/sticky-body.json"
 
 # 7. re-publish the commit status from the reconciled sticky — step 4 published the tier
 #    predicted before inline posting, and posted.log may have changed it.
