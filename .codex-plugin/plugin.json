@@ -1,6 +1,6 @@
 {
   "name": "cadence",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "AI coding lifecycle skills: triage-issue / investigate-issue (intake) → self-review (pre-push) → pr-review (on-PR, 4-role subagent dispatch) → pr-babysit (until merge).",
   "author": {
     "name": "Kirk Chen"

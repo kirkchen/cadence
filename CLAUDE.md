@@ -51,6 +51,7 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 
 - Edit `skills/<name>/SKILL.md` directly.
 - For `pr-review`, the four role prompt files are loaded by the dispatcher; keep their personas distinct.
+- `pr-review`'s severity tiers, volume caps, prose ceiling and drop signals are calibrated against a measured corpus — see [docs/pr-review-severity-calibration.md](docs/pr-review-severity-calibration.md) before changing any of those numbers. It also records the run-to-run noise floor, which is what tells you whether a future measurement means anything.
 - Commit with conventional commits (`feat(pr-review): ...` / `fix(pr-babysit): ...`).
 - Version bump in `.claude-plugin/plugin.json` + `.codex-plugin/plugin.json` for breaking changes.
 

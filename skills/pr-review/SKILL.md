@@ -635,6 +635,8 @@ Downgrades (step 3 or step 6 lowering a tier) MUST appear in the `Severity adjus
 
 ### Volume caps (applied after merge + dedup, before publish)
 
+> The thresholds in this section and in [P1 calibration](#p1-calibration) / [Prose severity ceiling](#prose-severity-ceiling) are measured, not chosen. Two of them were measured to do nothing and are deliberately loose. Before tightening any of them, read `docs/pr-review-severity-calibration.md`.
+
 Noise, not inaccuracy, is what makes a reviewer get ignored. Google's Tricorder contract for review-time analyzers is an effective false-positive rate below 10%, where "effective false positive" means *the developer chose not to act* — a finding that is technically correct but draws no action counts against you exactly like a hallucination ([Sadowski et al., ICSE 2015](https://www.cs.umd.edu/class/spring2019/cmsc414/papers/tricorder-building-a-program-analysis-ecosystem.pdf); analyzers above 10% go on probation, above 25% get switched off). Reviews whose feedback is mostly actionable cluster at **1–3 comments**; comment relevance measurably dilutes as volume rises ([Chowdhury et al., MSR '26](https://arxiv.org/pdf/2604.03196)).
 
 | Cap                         | Rule                                                                                                       |
