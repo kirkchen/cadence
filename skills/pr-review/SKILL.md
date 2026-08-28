@@ -467,11 +467,11 @@ Allowed sources:
 - User-provided `spec`, `context`, `test direction`, and `repo rules`
 - Beat change artifacts or ADRs explicitly linked in the PR body or user-provided spec/context
 - Module README / repo instruction files selected by changed paths when the caller provides them as `repo rules`
-- **The dismissal ledger** — author replies on this PR's own finding threads, harvested per [Reply harvesting](#reply-harvesting). These are durable, attributable, on-the-record artifacts written by the author in response to a specific finding, not conversation.
+- **The dismissal ledger** — author replies harvested per [Reply harvesting](#reply-harvesting), from **both** channels it names: finding threads and standalone PR/MR comments that name the finding they answer. These are durable, attributable, on-the-record artifacts written in response to a specific finding, not conversation. A finding published without a line anchor has no thread, so excluding standalone comments would exclude its only possible reply.
 
 Do not include:
 
-- Chat history, ad hoc "the author probably meant" assumptions, or author statements made anywhere other than a finding thread on this PR
+- Chat history, ad hoc "the author probably meant" assumptions, or author statements that do not answer a specific finding on this PR
 - A sticky-visible "rules source" section. Context hydration is an input discipline, not PR output.
 
 ### Reply harvesting
