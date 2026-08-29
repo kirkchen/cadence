@@ -68,6 +68,13 @@ claude --plugin-dir $(pwd)
 
 No automated tests yet — skills are prompts, validated empirically through dogfooding on real PRs.
 
+**This is a decision, not a gap.** Cross-model review has asked for an integration harness (stubbed `gh` / `glab` covering first-run publish, partial inline failure, and reconciliation) on four consecutive passes, and it has been declined each time. The reasoning:
+
+- The units under test are prompts. A harness can exercise the *shell recipes* inside them, which is a thin slice of the risk; it cannot test whether an agent reading the prompt does the right thing, which is where the defects actually live — every finding cross-model review has produced on this repo so far has been a contradiction between two instructions, not a broken command.
+- Standing up a first test framework here is a product decision about what cadence is, not a fix. It earns its place when there is enough shell in the publish path that a human cannot eyeball it, and that threshold has not been reached.
+
+Reviewers: do not re-raise this as a finding. If you think the threshold has been crossed, say what specifically changed rather than restating the general case.
+
 ## History
 
 Extracted from [`kirkchen/rhythm`](https://github.com/kirkchen/rhythm) in 2026-05. Originally `rhythm/.claude/skills/` contained `self-review` / `pr-review` / `pr-babysit` (PR lifecycle) alongside `triaging-issues` / `investigating-issues` (issue intake) and `beat-supervise` (Rhythm-specific worker supervisor). The PR lifecycle three landed in cadence first; the issue intake pair followed in 2026-05 when cadence's scope was widened from "PR review lifecycle" to "AI coding lifecycle". `beat-supervise` stays in rhythm because it depends on Rhythm's worker/supervisor runtime.
