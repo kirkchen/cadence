@@ -1100,7 +1100,20 @@ The `Evidence:` cite-or-drop rule is enforced at emission, but emission is not w
 
 1. **Evidence block is non-empty.** Every inline root must contain a `<summary>Evidence</summary>` block with at least one non-whitespace line. An empty block means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
 2. **No swallowed identifiers.** `Failure mode` and `Mitigation` must not contain a run of two or more spaces between non-space characters. That gap is where an inline-code span used to be; a body reading "若 X 期間 ␣␣ 拋例外，␣␣ 寫入 ␣␣ 而非 ␣␣" is unreadable and tells the author nothing.
-3. **Body round-trips.** Build every payload by writing the markdown to a file and passing it as a file argument (`--input`, `-F body=@file`, `--arg body "$(cat file)"`). Never interpolate finding markdown into a double-quoted shell string: backticks are command substitution there, and every `` `identifier` `` in the body silently becomes empty.
+3. **Body round-trips.** Build every payload by writing the markdown to a file and passing it as a file argument (`--input`, `-F body=@file`). Never interpolate finding markdown into a double-quoted shell string.
+
+**This is the confirmed cause of the empty-Evidence and swallowed-identifier defects, not a hypothesis.** Inside double quotes the shell treats a backtick pair as command substitution: it runs the contents as a command and replaces the whole span — backticks included — with that command's stdout. A markdown identifier is never a valid command, so the span becomes empty and leaves a double space:
+
+```bash
+# reproduced live while writing this section:
+git commit -m "補 `dismissed` 這個輸入"
+#   shell: command not found: dismissed
+#   committed message: 補  這個輸入
+```
+
+That is byte-for-byte the observed failure signature — `若 X 期間 ␣␣ 拋例外，␣␣ 寫入 ␣␣ 而非 ␣␣`. It also explains why some spans survive in the same comment: only the parts of the body that pass through a double-quoted argument are affected. A body assembled partly by heredoc (or `jq -Rs`) and partly by interpolation loses exactly the interpolated half, which is why a finding can ship with its header intact and its failure mode gutted.
+
+Single quotes and quoted heredocs (`<<'EOF'`) do not substitute, and neither does a file argument. Use one of those, always.
 
 A finding that fails 1 or 2 is a publishing defect, not a review finding. Fix the payload and repost, or drop it — never ship the mangled version. In a 215-finding sample this check would have caught 27 empty-Evidence posts (12%), including the highest-value finding in its MR.
 
