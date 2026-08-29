@@ -74,7 +74,9 @@ Run these checks at start. STOP on any failure with the listed message — do NO
 ```bash
 # Codex CLI
 codex --version 2>/dev/null || { echo "STOP: Install codex — npm install -g @openai/codex"; exit 1; }
-codex login --status 2>/dev/null || { echo "STOP: Run 'codex login' to authenticate"; exit 1; }
+codex login status >/dev/null 2>&1 || { echo "STOP: Run 'codex login' to authenticate"; exit 1; }
+# `codex login status` is a subcommand, not a flag. `--status` is rejected as an unknown
+# argument by codex-cli 0.150.x, which makes this check fail for an authenticated user.
 
 # Plugin install root — needed so codex can locate the pr-review methodology prompts
 [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "${CLAUDE_PLUGIN_ROOT}/skills/pr-review" ] || {
@@ -111,18 +113,23 @@ Maintain in main session memory:
   iters 4–5 trend to hygiene-tier nits + the occasional false positive that
   the controller then has to spend judgment rejecting. The real stop is SC0
   (severity floor) below — `MAX_ITERS` is the blunt backstop.
-- `FINDING_HISTORY` — list of `file:line:slug` fingerprints from prior iterations (for repetition detection)
+- `FINDING_HISTORY` — per iteration, a list of `{file, failure_mode, slug}` from that iteration's findings. **Identity is `file` + failure mode, not `file:line:slug`.**
+
+  Line numbers and slugs both drift for reasons that have nothing to do with whether a finding is the same finding. Every fix shifts the line numbers below it, and codex renames freely between passes. Measured over a real 4-iteration run on a prose-heavy repo: the exact-fingerprint check (SC3) **never fired** although one finding recurred in three consecutive iterations under three different slugs and three different line numbers, while the zero-overlap check (SC4b) **fired twice, both times spuriously** — the overlap was near-zero by construction because the previous iteration's findings had been fixed and every remaining line number had moved. Every fingerprint-dependent signal in that run was wrong, in both directions.
+
+  You are a model, not `grep`: compare failure modes for whether they describe the same defect. `author-self-accepts-security-exceptions` and `spoofable-accepted-by-identity` on the same file are one recurring finding, not two.
 
 ### Step 1: Run codex review
 
-Same prompt construction as Step 2 of `mode=review-only` (see Codex Prompt section below). Output goes to `/tmp/self-review-iter-$ITER.md`. Do NOT inline the verbose codex output into main session — only parse the JSON summary block.
+Same prompt construction as Step 2 of `mode=review-only` (see Codex Prompt section below). Output goes to `$WORK_DIR/iter-$ITER.md`. Do NOT inline the verbose codex output into main session — only parse the JSON summary block.
 
 Codex prompt MUST end with a summary JSON block (described in Codex Prompt section below) so main session can drive the loop without parsing prose.
 
 ```bash
-PROMPT_FILE=$(mktemp /tmp/self-review-prompt-XXXXXX.md)
-OUTPUT_FILE="/tmp/self-review-iter-$ITER.md"
-JSON_FILE="/tmp/self-review-iter-$ITER.json"
+WORK_DIR=${WORK_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/self-review-XXXXXX")}
+PROMPT_FILE="$WORK_DIR/prompt-iter-$ITER.md"
+OUTPUT_FILE="$WORK_DIR/iter-$ITER.md"
+JSON_FILE="$WORK_DIR/iter-$ITER.json"
 
 # Write prompt (see Codex Prompt section)
 write_codex_prompt > "$PROMPT_FILE"
@@ -137,14 +144,21 @@ codex exec "$(cat "$PROMPT_FILE")" \
   > "$OUTPUT_FILE" 2>/tmp/self-review-err
 
 # Extract JSON summary block between unique sentinels
-sed -n '/<!-- SELF-REVIEW-JSON-START -->/,/<!-- SELF-REVIEW-JSON-END -->/{
-  /<!-- SELF-REVIEW-JSON-/d
-  p
-}' "$OUTPUT_FILE" > "$JSON_FILE"
+# awk, not sed: the multi-command `/range/{...}` form is a GNU extension. BSD sed (macOS)
+# rejects it with `extra characters at the end of p command`, writes an empty $JSON_FILE,
+# and the guard below then blames codex for output codex actually produced.
+awk '/<!-- SELF-REVIEW-JSON-START -->/{f=1;next} /<!-- SELF-REVIEW-JSON-END -->/{f=0} f' \
+  "$OUTPUT_FILE" > "$JSON_FILE"
 
 # Guard: codex must emit a parseable JSON block — empty or malformed is NOT zero findings
 if [ ! -s "$JSON_FILE" ]; then
-  echo "STOP: codex did not emit a JSON summary block. Output saved to $OUTPUT_FILE for manual review."
+  # Distinguish "codex emitted nothing" from "extraction failed" — they need different fixes,
+  # and the second one masquerading as the first sends the user to debug the wrong process.
+  if grep -q 'SELF-REVIEW-JSON-START' "$OUTPUT_FILE"; then
+    echo "STOP: the JSON block IS present in $OUTPUT_FILE but extraction produced nothing — this is a bug in this skill's extraction step, not in codex."
+  else
+    echo "STOP: codex did not emit a JSON summary block. Output saved to $OUTPUT_FILE for manual review."
+  fi
   break
 fi
 if ! jq -e '.findings | type == "array"' "$JSON_FILE" >/dev/null 2>&1; then
@@ -200,66 +214,51 @@ is too big and should be split).
 
 **SC3 — Same finding 3x (race-of-race signal)**:
 
-```bash
-# Build current iter's fingerprints
-CURR_FPS=$(jq -r '.findings[] | "\(.file):\(.line):\(.slug)"' "$JSON_FILE")
+For each finding this iteration, look back over `FINDING_HISTORY` and count the iterations that contain **the same defect in the same file** — same failure mode, whatever the slug and line say. Three or more → STOP, escalate.
 
-# For each fingerprint, count occurrences in HISTORY + this iter
-for FP in $CURR_FPS; do
-  COUNT=$(echo "$FINDING_HISTORY" | grep -cF "$FP" || true)
-  COUNT=$((COUNT + 1))  # current iter
-  if [ "$COUNT" -ge 3 ]; then
-    REPEATED="$FP"
-    break
-  fi
-done
+```bash
+# Mechanical pre-filter only. It narrows the candidates; it does not decide.
+jq -r '.findings[] | "\(.file)\t\(.slug)\t\(.failure_mode)"' "$JSON_FILE"
 ```
 
-If `REPEATED` non-empty → STOP, escalate. Same finding has fired 3+ times across iterations; auto-fix is not converging. Reference `pr-babysit` § 4.5 Gate B for the equivalent convergence-failure pattern.
+Then judge, per candidate: *has this same defect been reported in two earlier iterations?* Answer from the failure-mode text, not from string equality. A finding whose file appears in history with a differently-worded but equivalent failure mode **counts**. This is the check that catches a finding your fixes keep failing to close — the case where each round the reviewer re-describes the same hole because your patch moved it rather than shutting it.
 
-**SC3.5 — File-only fallback for slug drift**: codex may use a different slug each iter for the same logical issue (`missing-nil-check` → `null-dereference-guard` → `null-check-omitted`). Exact fingerprint match would miss this. Track per-file appearance count across iters; if the same file has produced findings in 3+ consecutive iters → STOP, surface as warning:
+Reference `pr-babysit` § 4.5 Gate B for the equivalent convergence-failure pattern.
+
+**SC3.5 — Hot file (warning, not a stop)**: track which files produce findings each iteration. If one file has produced findings in 3+ consecutive iterations, **note it in the report and keep going**.
 
 ```bash
-# Per-iter file set (just file names, dedup)
-CURR_FILES=$(jq -r '.findings[].file' "$JSON_FILE" | sort -u)
-echo "$CURR_FILES" > "/tmp/self-review-iter-$ITER.files"
-
-# Count files that appear in current iter AND last two iters' file lists
+jq -r '.findings[].file' "$JSON_FILE" | sort -u > "$WORK_DIR/iter-$ITER.files"
 if [ "$ITER" -ge 3 ]; then
-  PREV1="/tmp/self-review-iter-$((ITER - 1)).files"
-  PREV2="/tmp/self-review-iter-$((ITER - 2)).files"
-  if [ -s "$PREV1" ] && [ -s "$PREV2" ]; then
-    PERSISTENT=$(grep -Fxf "$PREV1" "/tmp/self-review-iter-$ITER.files" | grep -Fxf "$PREV2" | head -3)
-    if [ -n "$PERSISTENT" ]; then
-      echo "STOP: file(s) producing findings 3+ consecutive iters — possible slug drift hiding stuck finding:"
-      echo "$PERSISTENT"
-      break
-    fi
-  fi
+  HOT=$(grep -Fxf "$WORK_DIR/iter-$((ITER-1)).files" "$WORK_DIR/iter-$ITER.files" \
+        | grep -Fxf "$WORK_DIR/iter-$((ITER-2)).files")
 fi
 ```
 
-This is an ADDITIVE signal — doesn't replace SC3's exact fingerprint check. SC3 catches lexical convergence failure; SC3.5 catches semantic convergence failure that slug drift hides.
+This used to be a stop condition covering for SC3's inability to see through slug drift. SC3 now matches on failure mode, so that job is done — and as a *stop*, this signal was actively harmful: in a repo whose product is one large file, every finding is in that file by definition, so it fires on every run of length 3. It did exactly that in the run these changes came from, stopping a loop that had real work left.
+
+What survives is worth surfacing but not acting on: a file drawing findings round after round is a hint the change in it is too large to review incrementally. Say so; let the human decide.
 
 **SC4 — Findings diverging**: fires on EITHER of two signals (race-of-race detection, cf `pr-babysit` § 4.5 Gate B):
 
 (a) **Count growing**: `FINDINGS_COUNT` strictly larger than previous iter's count → STOP, escalate. The fix step is introducing new issues faster than it resolves them.
 
-(b) **Set replacement**: `FINDINGS_COUNT >= 3` AND zero fingerprint overlap between current iter and previous iter (`|current ∩ prev_iter| == 0`) → STOP, escalate. Count unchanged but the WHOLE finding set turned over — fixes are opening completely new surfaces. Count-only check misses this.
+(b) **Set replacement** — zero overlap between this iteration's findings and the previous one's, **AND** the new findings land in the code the previous fix batch touched (`prior_fix_range`). Both halves are required.
+
+Zero overlap on its own is the normal shape of a healthy iteration: you fixed everything the previous round raised, so none of it recurs. Firing on that alone reports success as failure — measured twice in one 4-iteration run, both spurious. What distinguishes divergence is *where* the new findings are: if they sit inside the lines your last fixes wrote, the fixes are opening surfaces rather than closing them.
 
 ```bash
-PREV_FPS_FILE="/tmp/self-review-iter-$((ITER - 1)).fps"
-CURR_FPS_FILE="/tmp/self-review-iter-$ITER.fps"
-echo "$CURR_FPS" > "$CURR_FPS_FILE"
+# Which files did the previous fix batch touch?
+git diff --name-only $prior_fix_range > "$WORK_DIR/prior-fix-files.txt"
 
-if [ "$ITER" -gt 1 ] && [ "$FINDINGS_COUNT" -ge 3 ] && [ -s "$PREV_FPS_FILE" ]; then
-  OVERLAP=$(grep -Fxf "$PREV_FPS_FILE" "$CURR_FPS_FILE" | wc -l | tr -d ' ')
-  if [ "$OVERLAP" = "0" ]; then
-    echo "STOP: set-replacement divergence (iter $((ITER-1)) and iter $ITER share zero findings)"
-    break
-  fi
-fi
+# How many of this iteration's findings are in those files?
+IN_FIX=$(jq -r '.findings[].file' "$JSON_FILE" | grep -Fxf "$WORK_DIR/prior-fix-files.txt" | wc -l | tr -d ' ')
+TOTAL=$(jq '.findings | length' "$JSON_FILE")
 ```
+
+Fires when: `TOTAL >= 3` **and** semantic overlap with the previous iteration is zero **and** `IN_FIX` is at least half of `TOTAL`. Otherwise the loop continues — the findings are new work, not self-inflicted churn.
+
+> Note the asymmetry with drop signal (B) in pr-review, which discards findings on self-introduced surface. Here the same observation is a *stop* signal rather than a filter: self-review is allowed to fix what it broke, but not indefinitely, and not without telling you.
 
 ### Step 3: Apply fixes per finding
 
@@ -286,16 +285,20 @@ jq -c '.findings[]' "$JSON_FILE" | while read -r FINDING; do
     continue
   fi
 
-  # Atomic commit
+  # Atomic commit. The body goes through a FILE, never `-m "...$MITIGATION..."`:
+  # $FAILURE_MODE / $MITIGATION / $SLUG are codex's output, and inside a double-quoted
+  # shell string both `backticks` and $(...) are command substitution. Best case a cited
+  # `file.py:42` silently becomes empty; worst case model output executes.
+  MSG_FILE="$WORK_DIR/commit-$ID.txt"
+  {
+    printf 'fix(%s): %s — self-review iter %s #%s\n\n' "$PERSONA" "$SLUG" "$ITER" "$ID"
+    printf 'Failure mode: %s\n' "$FAILURE_MODE"
+    printf 'Mitigation: %s\n\n' "$MITIGATION"
+    printf 'Source: codex review following pr-review methodology\nCategory: %s\n' "$CATEGORY"
+  } > "$MSG_FILE"
+
   git add "$FILE"
-  git commit -m "fix($PERSONA): $SLUG — self-review iter $ITER #$ID
-
-Failure mode: $FAILURE_MODE
-Mitigation: $MITIGATION
-
-Source: codex review following pr-review methodology
-Category: $CATEGORY
-"
+  git commit -F "$MSG_FILE"
 done
 ```
 
@@ -349,6 +352,10 @@ fi
 ```
 
 If tests fail → STOP, escalate. Do NOT auto-revert (user may want to inspect what went wrong). Report which iter introduced the failure.
+
+**When `TEST_CMD` is empty the gate does not exist**, and that has to be visible in more than a setup-time `WARN` nobody scrolls back to. Every fix this loop commits is then unverified by anything. State it in the final report header, with the commit count, in the form above. In a repo with no test command the loop's whole safety net is "the human reads the diff afterwards" — which is fine, and is exactly why it must be said rather than implied.
+
+**If a stop condition fired and the user directed the loop to continue anyway**, that is allowed — the human outranks the loop — but record it on the `Loop authority` line naming which condition was overridden. The counters restart with prior findings kept as history; the override does not erase them.
 
 ### Step 5: Update history and loop
 
@@ -485,9 +492,9 @@ BASE branch: origin/<substitute BASE from skill caller>
 | **SC1 Success**            | `findings == 0`                                                                                              | Report iter count + total fixes applied                          |
 | **SC0 Severity floor**     | iteration has findings but ZERO real bugs (no `Blocker`/`Factual` × `Reachable`/`Asymmetric`)                | STOP, converged-enough; surface hygiene findings, don't auto-fix |
 | **SC2 Cap reached**        | `iter > 3` (`MAX_ITERS`)                                                                                     | Escalate; surface remaining findings to user                     |
-| **SC3 Repeat 3x**          | Same finding fingerprint (`file:line:slug`) 3 iterations                                                     | Escalate; race-of-race signal (cf `pr-babysit` § 4.5 Gate B)     |
+| **SC3 Repeat 3x**          | Same defect (file + failure mode, judged — not string-matched) in 3 iterations                               | Escalate; race-of-race signal (cf `pr-babysit` § 4.5 Gate B)     |
 | **SC3.5 Slug drift**       | Same file produces findings in 3+ consecutive iters (file-only fallback)                                     | Escalate; possible slug drift hiding stuck finding               |
-| **SC4 Findings diverging** | (a) count growing iter-over-iter, OR (b) zero fingerprint overlap between consecutive iters with ≥3 findings | Escalate; auto-fix opening new surfaces                          |
+| **SC4 Findings diverging** | (a) count growing iter-over-iter, OR (b) ≥3 findings AND zero semantic overlap AND ≥half landing in files the prior fix batch touched | Escalate; auto-fix opening new surfaces                          |
 | **SC5 Test failure**       | `$TEST_CMD` exits non-zero after iter's fixes                                                                | Escalate; commits left in place for user inspection              |
 | **SC6 Skip backlog**       | ≥3 findings skipped this iter (can't fix from Mitigation alone)                                              | Continue loop, but surface skipped list at end                   |
 | **User ctrl-c**            | User interrupts                                                                                              | Report partial state, last committed iter, what was in progress  |
@@ -514,7 +521,8 @@ Stop reason: <SC code + brief>
 Commits made: <count> (atomic, one per finding)
   - <sha> fix(<persona>): <slug>
   - ...
-Tests: <pass | fail | skipped (no TEST_CMD)>
+Tests: <pass | fail | ⚠️ NOT RUN — no TEST_CMD detected, N commits unverified>
+Loop authority: <stop condition honoured | ⚠️ human override — <which SC fired, and that the user directed the loop to continue>>
 
 Findings still open (if escalation):
   - <persona> / <category> @ <file>:<line>: <slug>
@@ -528,7 +536,7 @@ Skipped findings (Mitigation needed design judgment):
 
 Suggested next steps:
 - Review the atomic commits — revert any you disagree with
-- For surfaced findings: read /tmp/self-review-iter-<N>.md for full context, decide modify/wontfix/defer manually
+- For surfaced findings: read $WORK_DIR/iter-<N>.md for full context, decide modify/wontfix/defer manually
 - Consider /cadence:pr-review mode=local for Claude-side multi-role view + comparison
 - Push when satisfied
 ═════════════════════════════════════════════════════════════
@@ -538,7 +546,7 @@ Suggested next steps:
 
 - **Cross-model isolation rationale**: codex (OpenAI GPT) reviews Claude-generated code → avoids same-model self-preference bias (Wataoka et al., perplexity-driven). Each codex invocation is a fresh process — no conversation context inheritance.
 
-- **Context-mix prevention design**: codex output goes to `/tmp/self-review-iter-$ITER.md` (file, not chat). Main session only parses the JSON summary block into conversation memory. Full finding text accessed by main session via file read when implementing each fix — not auto-injected. This keeps main session's growing conversation lean across iterations.
+- **Context-mix prevention design**: codex output goes to `$WORK_DIR/iter-$ITER.md` (file, not chat). Main session only parses the JSON summary block into conversation memory. Full finding text accessed by main session via file read when implementing each fix — not auto-injected. This keeps main session's growing conversation lean across iterations.
 
 - **Methodology single-sourced**: codex reads `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/*-prompt.md` directly (dispatcher expands the env var to an absolute path before handing the prompt to codex). When pr-review prompts update, this skill picks up the new methodology automatically. No keep-in-sync burden between pr-review and self-review.
 
