@@ -647,6 +647,16 @@ spec-auditor uses `Spec quote:` + `Code quote:` instead of single `Evidence:` �
 
 **Drop rule**: any finding without `Evidence:` (or both quotes for spec-auditor) is fabrication — discard before merge.
 
+**Cite-or-drop applies at emission and at publish, never as a re-gate.** The three places are not interchangeable and conflating them makes the same finding survive or vanish depending on who looked at it last:
+
+| Stage | Who | What an empty `Evidence:` means | Action |
+| ----- | --- | ------------------------------- | ------ |
+| Emission | subagent | The reviewer could not quote the line it is claiming — the finding is fabrication | Drop it, silently |
+| Merge / severity | dispatcher | Nothing. The evidence arrived; do not re-run the emission gate here | Carry it through untouched |
+| Publish | dispatcher | The quote was lost between report and payload — see [Payload assertions](#payload-assertions-run-before-any-post) | Publishing defect: fix the payload and repost, or drop and say so in the sticky. Never re-classify the finding as fabricated |
+
+The middle row is the one that gets forgotten. A finding whose evidence was destroyed in transit — the confirmed backtick-substitution failure — looks identical to a fabricated one at merge time, and treating it as fabrication deletes a real finding to cover a shell-quoting bug.
+
 ## Finding Inclusion Threshold
 
 This gate is applied by each subagent inline before emitting a finding. **Canonical definition lives in the subagent prompts, not here** — see any of:
