@@ -41,7 +41,7 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 ## Design Invariants — Do Not Break These
 
 1. **`pr-review` HARD-GATE**: pr-review refuses to run when called from the same session that authored the diff. Author bias destroys finding precision. If you tweak the gate, read [Mitropoulos et al., arXiv:2603.18740](https://arxiv.org/abs/2603.18740) (cited in `pr-review/SKILL.md`) first — bug-free framing produces the strongest detection drop among framing conditions tested across 6 LLMs.
-2. **Subagent dispatch is mandatory** in pr-review — never collapse the 4 role prompts into one prompt. Each role is a *fresh* context with a different mental model. Pooling them defeats the diversity guarantee. Dispatch must also be **blocking** (`run_in_background: false` on every Agent call): the host defaults to background and its tool description discourages opting out, so leaving this to the model's judgement means the dispatcher ends its turn with reports still in flight — and on a non-interactive host (Rhythm worker, CI), turn end *is* run end, so those reports and the whole publish step are silently lost. Any skill text about dispatch must keep saying this explicitly; "in parallel" alone is not enough.
+2. **Subagent dispatch is mandatory** in pr-review — never collapse the 4 role prompts into one prompt, and never let the dispatcher answer a question a subagent exists to answer (the `rebuttal-assessor` that weighs an author's rebuttal is one of these: the party holding the finding cannot fairly judge an argument against it). Each role is a *fresh* context with a different mental model. Pooling them defeats the diversity guarantee. Dispatch must also be **blocking** (`run_in_background: false` on every Agent call): the host defaults to background and its tool description discourages opting out, so leaving this to the model's judgement means the dispatcher ends its turn with reports still in flight — and on a non-interactive host (Rhythm worker, CI), turn end *is* run end, so those reports and the whole publish step are silently lost. Any skill text about dispatch must keep saying this explicitly; "in parallel" alone is not enough.
 3. **`self-review` is cross-model**, not Claude-vs-Claude. Calling Claude to grade Claude's own diff is the same bias trap as pr-review's gate.
 4. **`pr-babysit` never auto-merges.** It reports ready-to-merge and stops. Merge is a human decision.
 5. **Intake skills are single-issue.** `triage-issue` / `investigate-issue` process one issue per invocation. Batch / backlog walkthroughs are the caller's responsibility — keep the skill a pure unit. Don't pull `gh issue list` orchestration into the skill itself.
@@ -51,6 +51,7 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 
 - Edit `skills/<name>/SKILL.md` directly.
 - For `pr-review`, the four role prompt files are loaded by the dispatcher; keep their personas distinct.
+- `pr-review`'s severity tiers, volume caps, prose ceiling and drop signals are calibrated against a measured corpus — see [docs/pr-review-severity-calibration.md](docs/pr-review-severity-calibration.md) before changing any of those numbers. It also records the run-to-run noise floor, which is what tells you whether a future measurement means anything.
 - Commit with conventional commits (`feat(pr-review): ...` / `fix(pr-babysit): ...`).
 - Version bump in `.claude-plugin/plugin.json` + `.codex-plugin/plugin.json` for breaking changes.
 
@@ -66,6 +67,13 @@ claude --plugin-dir $(pwd)
 ```
 
 No automated tests yet — skills are prompts, validated empirically through dogfooding on real PRs.
+
+**This is a decision, not a gap.** Cross-model review has asked for an integration harness (stubbed `gh` / `glab` covering first-run publish, partial inline failure, and reconciliation) on four consecutive passes, and it has been declined each time. The reasoning:
+
+- The units under test are prompts. A harness can exercise the *shell recipes* inside them, which is a thin slice of the risk; it cannot test whether an agent reading the prompt does the right thing, which is where the defects actually live — every finding cross-model review has produced on this repo so far has been a contradiction between two instructions, not a broken command.
+- Standing up a first test framework here is a product decision about what cadence is, not a fix. It earns its place when there is enough shell in the publish path that a human cannot eyeball it, and that threshold has not been reached.
+
+Reviewers: do not re-raise this as a finding. If you think the threshold has been crossed, say what specifically changed rather than restating the general case.
 
 ## History
 
