@@ -86,7 +86,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 C-class findings most often fall under **Reachable** (the spec-violating code path is reachable today). C4 business-rule findings can be **Asymmetric** when the rule governs money / data integrity. **Precedent** rarely applies. **Historical** when the same spec drift has surfaced before.
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Spec / Code quote). Spec gap Q-questions (`Spec gap:` prefix) are exempt — they're addressed to the spec author, not flagging code.
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Spec / Code quote). Two exemptions: Spec gap Q-questions (`Spec gap:` prefix), which are addressed to the spec author rather than flagging code, and the Q-class hygiene batch, which is class-less by construction — that is what "no class honestly applies" means. Without the second, the no-class path both retains the observation as Q and discards it for having no class.
 
 ### Drop signals — any one fires
 
@@ -181,7 +181,7 @@ For EACH candidate finding:
 3. **Does the cited code line actually do what I claim?** If inferring → demote to ❓ Question.
 4. **Does this belong to C1–C4?** If it's just a code bug (no spec rule applies) → drop, route to staff-engineer mentally.
 5. **For C3 (out-of-spec)**: am I sure the change isn't covered by an implicit spec scope? Reread the spec before emitting.
-6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch), or mitigation offers "comment or change" as equal-weight options → take the outcome the drop-signal table assigns that signal — (A)/(C)/(D) escalate to Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption), (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D)/(E)/(F) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch), or mitigation offers "comment or change" as equal-weight options → take the outcome the drop-signal table assigns that signal — (A)/(C)/(D) escalate to Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption), (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 7. **Would the spec author look at this and say "actually the spec means X, not what you quoted"?** If you're worried → demote to ❓ Question.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.

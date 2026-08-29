@@ -317,6 +317,7 @@ Use when the caller is **another skill or supervisor session** that needs unbias
 - `base: <ref>` (required — e.g. `origin/main`)
 - `last_sha: <sha>` (optional — if provided, runs incremental on `<last_sha>..HEAD` and still reads `<base>...HEAD` for cumulative context that subagents need for prior-finding verification)
 - `spec`, `test direction`, `context` — same semantics as default mode
+- `dismissed: [{ finding_id, kind, reason }]` (optional) — the caller's own dismissal ledger, standing in for [Reply harvesting](#reply-harvesting). Local mode has no PR and no threads, so nothing can be harvested; a caller driving its own loop keeps this state and passes it back. Omitted means empty, which is valid and simply means drop signal (E) never fires.
 
 `pr` is NOT required and ignored if provided.
 
@@ -478,7 +479,7 @@ Do not include:
 
 ### Reply harvesting
 
-Run before dispatch on every incremental iteration. Without it the review re-litigates settled findings: the author writes "wontfix, out of scope, here is why" in the thread, the next iteration never sees it, and the same finding comes back — which is the single most-cited reason developers stop trusting a review bot, and the thing they credit tools that *do* carry state with fixing.
+Run before dispatch on every incremental iteration **that has a PR to read**. In `mode: local` there is no PR and no threads: the ledger comes from the caller's `dismissed` input if they keep that state, and is otherwise empty. An empty ledger is a valid ledger — it means (E) never fires, not that harvesting was skipped by mistake. Without it the review re-litigates settled findings: the author writes "wontfix, out of scope, here is why" in the thread, the next iteration never sees it, and the same finding comes back — which is the single most-cited reason developers stop trusting a review bot, and the thing they credit tools that *do* carry state with fixing.
 
 1. Fetch **both** reply channels. Authors use whichever is available, and the more considered the rebuttal, the more likely it is not in a thread:
    - **In-thread** — GitHub review comment threads; GitLab discussions whose root carries `pr-review:finding-root`.
@@ -577,7 +578,7 @@ Each subagent receives:
 - In `incremental` mode (dispatcher MUST provide all four):
   - Prior findings JSON (subagent's own category scope only)
   - Prior `Checked & clean` slugs for drift spot-check
-  - **Dismissal ledger** from [Reply harvesting](#reply-harvesting) — every finding the author rebutted, wontfixed, or deferred, with their stated reason. Subagent applies drop signal (E) against it. An empty ledger is a valid value; a *missing* ledger is not — if replies could not be fetched, say so in the sticky rather than reviewing as if there were none.
+  - **Dismissal ledger** from [Reply harvesting](#reply-harvesting) — in `mode: local` there is no PR to harvest, so the caller supplies it (or omits it, which means empty) and step 1 of Reply harvesting is skipped; see [Local Mode](#local-mode) — every finding the author rebutted, wontfixed, or deferred, with their stated reason. Subagent applies drop signal (E) against it. An empty ledger is a valid value; a *missing* ledger is not — if replies could not be fetched, say so in the sticky rather than reviewing as if there were none.
   - **`prior_fix_range`**: `<first-fix-sha>^..<last-fix-sha>` — git range covering the commits that addressed iter (N-1) findings. In single-commit-per-iter cases this collapses to `<last_sha>..HEAD`. If the dispatcher cannot determine the range (e.g. force-push, squash-merge of iter N-1 commits) → fall back to `full` mode and announce in sticky; do NOT invoke incremental mode without `prior_fix_range`
   - **`mr_range`**: `<merge-base(target, HEAD)>..HEAD` — the whole PR's history. Drop signal (B) is evaluated against this, not against `prior_fix_range` alone: a line the PR added in commit 3 and removed in commit 9 is not a defect in the PR, and neither is the removal. `prior_fix_range` remains the narrower hint for *which* iteration introduced a surface; `mr_range` is what decides whether the surface is self-introduced at all.
 - NO conversation history, NO session context, NO prior subagent findings from this run. Repo rules inside the compact context pack are allowed because they come from durable project artifacts or explicit invocation inputs.
@@ -1117,7 +1118,8 @@ The sticky must be posted before the inline comments because the inline roots ca
 
 Rules:
 
-- A finding this iteration **attempted** to post inline, which then has no successfully posted thread and no sticky row, does not exist. Never leave one listed in the sticky with no thread behind it — a reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read.
+- **A failed inline post is a publishing failure, never a reason to drop the finding.** If the call failed, keep the finding in the sticky, mark the row `⚠️ thread failed to post`, and force the status to `⚠️ pr-review: PARTIAL — publish incomplete`. A transient network error must not be able to delete a P0 and hand back a passing status; that turns the flakiest part of the pipeline into a silent severity filter.
+- What must never happen is the reverse: a finding **listed** in the sticky as having a thread, with no thread behind it. A reader who cannot find the thread has to prove a negative, and the sticky is the one artifact people actually read. So every row states which it is — posted (with link), deliberately sticky-only, or failed.
 - A row is never removed merely for lacking a thread. If reconciliation drops the deliberately-sticky-only population, an all-P3 review reconciles to `Open: none` and publishes `PASSED` over real findings — and a capped iteration quietly loses its overflow P2s the same way.
 - Conversely, never let the sticky read `Open: none` while an unaccepted P0/P1 thread is live. The status line is what a merge decision is made on; if it and the threads disagree, a real defect ships.
 - If step 1 or 3 fails, the sticky must say so (`⚠️ pr-review: PARTIAL — publish incomplete`) rather than keeping the optimistic first write.

@@ -63,7 +63,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 Most E1–E9 findings naturally fall under **Reachable** (the bug fires in current code path). E4 (backwards compat) often **Precedent** (shared protocol affects callers) or **Asymmetric** (data-layer migrations). E6 / E7 quantify-able to **Reachable**.
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence).
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence). **The one exception is the Q-class hygiene batch**, which is class-less by construction — that is what "no class honestly applies" means — and MAY omit `Justification:`, the same exemption the spec-gap Q already carries. Without this, the no-class path both retains the observation as Q and discards it for having no class.
 
 ### Drop signals — any one fires
 
@@ -190,7 +190,7 @@ For EACH candidate finding:
 2. **Does the cited line actually do what I claim?** If inferring beyond the line → demote to ❓ Question.
 3. **Does this belong to E1–E9?** If it's security/test/spec/style → drop.
 4. **For E7 (cross-file impact)**: did I actually grep for callers, or am I guessing? If guessing and has_repo=true → grep before emitting. If has_repo=false → mark N/A.
-5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)/(E)/(F)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 6. **Would the author look at this and say "that's just style"?** If yes → drop or demote to 💡 Suggestion.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.

@@ -55,7 +55,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 Most S1–S5 findings naturally fall under **Asymmetric** (security IS the asymmetric class). Still pick the most specific class that fits; if none does, the finding is not a security finding — drop.
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence).
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence). **The one exception is the Q-class hygiene batch**, which is class-less by construction — that is what "no class honestly applies" means — and MAY omit `Justification:`, the same exemption the spec-gap Q already carries. Without this, the no-class path both retains the observation as Q and discards it for having no class.
 
 ### Drop signals — any one fires
 
@@ -183,7 +183,7 @@ For EACH candidate finding, ask:
 1. **Did I quote the actual diff line in `Evidence:`?** If no → drop the finding.
 2. **Does the cited line actually do what I claim?** If you're inferring beyond what the line says → demote to ❓ Question with `confidence: low`.
 3. **Does this belong to S1–S5?** If it's logic/perf/test/style → drop, route mentally to the right persona.
-4. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+4. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)/(E)/(F)?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 5. **Would the author look at this and say "that's not what the code does"?** If yes → drop or demote.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed. Better to under-report than over-report.

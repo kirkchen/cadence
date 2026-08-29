@@ -69,7 +69,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 T-class findings most often fall under **Reachable** (the untested branch is reachable in current code). Missing tests for a code path that CAN run today are Reachable. Tests covering "what if someone later refactors" are NOT — they fall to drop signal (A).
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence).
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence). **The one exception is the Q-class hygiene batch**, which is class-less by construction — that is what "no class honestly applies" means — and MAY omit `Justification:`, the same exemption the spec-gap Q already carries. Without this, the no-class path both retains the observation as Q and discards it for having no class.
 
 ### Drop signals — any one fires
 
@@ -169,7 +169,7 @@ For EACH candidate finding:
 2. **Did I check whether a test already exists** (when has_repo=true)? Grep before emitting T1. If existing test covers it → drop. If you didn't grep → demote to ❓ Question.
 3. **Does this belong to T1–T4?** If it's "the logic is wrong" → drop, route to staff-engineer.
 4. **Is the suggested test layer correct?** Don't recommend e2e for a pure utility function.
-5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D) and the SDET hygiene cluster triggers?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch and the "missing assertion that catches Reachable bug" counter-example) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)/(E)/(F) and the SDET hygiene cluster triggers?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch and the "missing assertion that catches Reachable bug" counter-example) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 6. **Would the author look at this and say "we have a test for that"?** If yes and you didn't grep → drop.
 
 Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
