@@ -35,6 +35,12 @@ Routines exist because the maintenance nobody has time for — dead code, tests 
 
 Objectivity predicts first-round merge rate. When adopting routines in a new repo, enable the top of this table first and only add the lower rows once the earlier ones are landing.
 
+**Scheduler hygiene**, whatever fires the run — the specifics belong in the target repo's own operator docs, but three things hold everywhere:
+
+- **Pin the model explicitly** if the scheduler exposes one. Left blank it inherits a default, and the default is usually the expensive one — a poor trade for work this mechanical.
+- **Do not carry state between runs.** Each run starts cold and reads the repo. Scheduler-side session memory gets reclaimed on its own schedule, so a routine that depends on remembering last time will silently start over.
+- **Stagger the schedules** against whatever concurrency limit the runner enforces. Same-minute triggers queue up and hold their workspaces while they wait.
+
 ## Preflight — all four gates must pass before any scanning
 
 **1. Load the repo config.** Read `.claude/routines.md` in the target repo.
