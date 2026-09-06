@@ -13,6 +13,7 @@ Cadence is a Claude Code / Codex plugin shipping skills for the AI coding lifecy
 - `self-review` — pre-push codex cross-model loop
 - `pr-review` — on-PR multi-role subagent dispatch (4 fresh role contexts)
 - `pr-babysit` — until-merge CI watch + reviewer-feedback triage
+- `maintenance-routine` — scheduled mechanical upkeep, 7 archetypes; produces PRs that enter the pipeline above
 
 Each skill lives in `skills/<name>/SKILL.md`. There is **no application code** — cadence is purely a set of SKILL.md prompts.
 
@@ -33,7 +34,10 @@ skills/
 │   ├── security-reviewer-prompt.md
 │   ├── spec-auditor-prompt.md
 │   └── staff-engineer-prompt.md
-└── pr-babysit/SKILL.md
+├── pr-babysit/SKILL.md
+└── maintenance-routine/
+    ├── SKILL.md
+    └── routines/          # 7 archetype files
 ```
 
 The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin/` + repo root) and Codex (`plugins/cadence/` overlay via symlinks). Single source of truth in `skills/`.
@@ -45,12 +49,15 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 3. **`self-review` is cross-model**, not Claude-vs-Claude. Calling Claude to grade Claude's own diff is the same bias trap as pr-review's gate.
 4. **`pr-babysit` never auto-merges.** It reports ready-to-merge and stops. Merge is a human decision.
 5. **Intake skills are single-issue.** `triage-issue` / `investigate-issue` process one issue per invocation. Batch / backlog walkthroughs are the caller's responsibility — keep the skill a pure unit. Don't pull `gh issue list` orchestration into the skill itself.
-6. **No project-specific assumptions in skill text.** Cadence is meant to be repo-agnostic. Hardcoded paths, internal hostnames, project names, language defaults → reject in review.
+6. **No project-specific assumptions in skill text.** Cadence is meant to be repo-agnostic. Hardcoded paths, internal hostnames, project names, language defaults → reject in review. `maintenance-routine` is the sharpest test of this rule, because it was extracted from a codebase-specific original: anything naming a path, a package manager or an internal symbol belongs in the target repo's `.claude/routines.md`, never in the skill. A generalisable rule that has leaked *out* into a repo config is the same bug in the other direction — pull it back.
+7. **`maintenance-routine` never merges, and never opens an empty PR.** It runs unattended, so it is the one skill whose failure mode is unsupervised. Both rules exist so a run that finds nothing costs nothing: the qualification tests are meant to reject most candidates, and "scanned X, nothing qualified" is a successful run. Any change that makes a routine more likely to produce a PR needs to argue why the merge rate will hold.
+8. **`maintenance-routine` refuses to run without config.** No `.claude/routines.md` → stop and print the schema. No green baseline at HEAD → stop and report. Do not add inference fallbacks for either: guessing forbidden paths is how a routine ends up editing migrations, and a red baseline makes every safety claim in the resulting PR unfalsifiable.
 
 ## Updating Skills
 
 - Edit `skills/<name>/SKILL.md` directly.
 - For `pr-review`, the four role prompt files are loaded by the dispatcher; keep their personas distinct.
+- For `maintenance-routine`, `SKILL.md` holds the contract every archetype obeys and `routines/<archetype>.md` holds one archetype's qualification test, PR sections and per-run cap. Archetype files may tighten the contract, never relax it. Adding an archetype means adding a file plus a row in the tables in `SKILL.md` and `README.md`.
 - `pr-review`'s severity tiers, volume caps, prose ceiling and drop signals are calibrated against a measured corpus — see [docs/pr-review-severity-calibration.md](docs/pr-review-severity-calibration.md) before changing any of those numbers. It also records the run-to-run noise floor, which is what tells you whether a future measurement means anything.
 - Commit with conventional commits (`feat(pr-review): ...` / `fix(pr-babysit): ...`).
 - Version bump in `.claude-plugin/plugin.json` + `.codex-plugin/plugin.json` for breaking changes.
@@ -76,5 +83,7 @@ No automated tests yet — skills are prompts, validated empirically through dog
 Reviewers: do not re-raise this as a finding. If you think the threshold has been crossed, say what specifically changed rather than restating the general case.
 
 ## History
+
+`maintenance-routine` followed in 2026-09, extracted from rhythm's `.claude/routines/` — seven files that were roughly three-quarters method and one-quarter rhythm-specific parameters. The method came here; the parameters stayed behind as `.claude/routines.md`. Invariant 6 is what forced that line, and invariant 8 (refuse to run without config) is what keeps the two halves from silently drifting back together.
 
 Extracted from [`kirkchen/rhythm`](https://github.com/kirkchen/rhythm) in 2026-05. Originally `rhythm/.claude/skills/` contained `self-review` / `pr-review` / `pr-babysit` (PR lifecycle) alongside `triaging-issues` / `investigating-issues` (issue intake) and `beat-supervise` (Rhythm-specific worker supervisor). The PR lifecycle three landed in cadence first; the issue intake pair followed in 2026-05 when cadence's scope was widened from "PR review lifecycle" to "AI coding lifecycle". `beat-supervise` stays in rhythm because it depends on Rhythm's worker/supervisor runtime.

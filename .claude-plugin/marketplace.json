@@ -10,9 +10,9 @@
     {
       "name": "cadence",
       "source": "./",
-      "description": "AI coding lifecycle: triage-issue → investigate-issue → self-review → pr-review → pr-babysit",
+      "description": "AI coding lifecycle: triage-issue → investigate-issue → self-review → pr-review → pr-babysit, plus scheduled maintenance-routine",
       "category": "workflow",
-      "tags": ["ai-coding", "code-review", "pr-review", "self-review", "issue-triage", "babysit"]
+      "tags": ["ai-coding", "code-review", "pr-review", "self-review", "issue-triage", "babysit", "maintenance"]
     }
   ]
 }
