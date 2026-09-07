@@ -805,9 +805,9 @@ The decision layer answers three questions, in this order, and nothing else: wha
 <!-- pr-review:sha=<HEAD> -->
 <!-- pr-review:status=<token> -->
 
-## <status-heading>
+## <status-heading><, N awaiting your decision — only when N > 0>
 
-**Open**: <…> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
+**Open**: <none | P0×N, P1×N, P2×N, P3×N, Q×N — only non-zero><, split as (N awaiting author, N awaiting decision) when any finding has an author reply> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
 
 ### 這個 PR 做什麼
 <一句：使用者或 operator 得到什麼。>
@@ -839,13 +839,14 @@ The decision layer answers three questions, in this order, and nothing else: wha
 
 Shape rules — each is a hard bound, not a preference:
 
+- **The first visible line is the status heading**, with the `, N awaiting your decision` suffix whenever N > 0 and no bot attribution before it. The suffix and the `Open:` split are what tells a reader at a glance that a reply moved the ball into their court.
 - **Every bullet is one line.** No sub-clauses explaining why, no second sentence. The explanation lives in the inline thread the F-id points at.
 - **"這個 PR 做什麼" is exactly three lines** as shown. The third line is where the diff and the description disagree — scope the description said it would not touch, a switch or default it did not mention, a file count that is wrong. When they agree, it says `無`.
 - **Consequences are grouped by who is affected**, never by severity or category. Each group holds at most two bullets; a group with nothing says `無`. What did not fit is one line, `另有 N 件較輕的在明細`. A consequence is two clauses: **現在** — what the affected party runs into today, in what they can see (`agent 改完 code 跑 e2e 會對舊 build 綠燈`), never the code (`.next 沒重建`); **建議** — the behaviour after the fix (`改完自動重 build`), never the edit. The edit lives in the inline thread the F-id points at.
 - **"它替你做的決定" lists choices a human author would have asked about first**: a new dependency, a new env var or switch, a schema change, a changed default, a new endpoint or permission, a deleted or weakened test, a security-posture change, work outside the described scope. At most five; omit the section when there are none. The verdict at the end of the line is the review's: `可接受` when the choice is ordinary for this repo, `要問你` when it is not.
 - **"你要決定的" holds only things the reader must rule on**: an author's wontfix or deferral (author's reason, review's recommendation), a scope-extension question, a decision from the section above marked `要問你`. Nothing already recommended `修` appears here.
-- **Tokens that do not appear in this layer**: `file:line` (except inside a `修：` clause when that line *is* the whole fix), CWE, `Blast`, `Confidence`, `Justification`, slugs, category names, subagent names, mutation-testing narration.
-- **Total: at most 25 lines** between the `**Open**` line and `**建議**`. If the review cannot fit, it trims the consequence groups, never the other sections.
+- **Tokens that do not appear in this layer**: `file:line`, CWE, `Blast`, `Confidence`, `Justification`, slugs, category names, subagent names, mutation-testing narration.
+- **Total: at most 25 non-blank lines**, counting the `**Open**` and `**建議**` lines themselves. If the review cannot fit, it trims the consequence groups, never the other sections.
 - **The ledger below carries only the prescribed sections** — 📋 Currently open · ⏸️ Awaiting your decision · ↪ Accepted exceptions · 📍 Inline comments · ⚖️ Severity adjustments · 🔄 Last iteration changes · 📊 Overview by category · ❓ Spec gap questions · ✅ Checked & clean · footer. No improvised sections (process disclosures, per-finding essays, verification narratives); a finding's full text is its inline thread.
 - **Language**: the PR description's language, like the rest of the published prose.
 
@@ -869,14 +870,16 @@ Example — a sandbox-environment PR on its seventh iteration, 22 lines:
 
 ### 照現在 merge 會怎樣
 - 對使用它的人：無
-- 對 CI 與本機開發：**現在**：install 跟 app terminal 的 build 撞在一起仍會寫壞 `.next`，README 卻說撞不壞 · **建議**：兩邊的 build 都走同一把鎖，README 的宣稱才成立 · 修 (F26)；**鎖測試探測 `flock` 失敗時整個跳過、輸出跟通過一樣** · 修：把「不存在」跟「探測失敗」分開 · 建議：修 (F34)
+- 對 CI 與本機開發：**現在**：install 跟 app terminal 的 build 撞在一起仍會寫壞 `.next`，README 卻說撞不壞 · **建議**：兩邊的 build 都走同一把鎖，README 的宣稱才成立 · 修 (F26)
+- 對 CI 與本機開發：**現在**：鎖測試探測 `flock` 失敗時整個跳過，輸出跟通過一樣 · **建議**：探測失敗要以失敗收場，跟 `flock` 不存在分開 · 修 (F34)
 - 對 prod：無
-另有 12 件較輕的在明細，都在 review 過程中新增的 build 鎖測試上。
+另有 12 件較輕的在明細。
 
 ### 你要決定的
 1. install 的 build 要不要走鎖？作者：這輪沒碰。review：不同意，README 的宣稱現在是假的，一行改動 (F26)
 2. 鎖測試的 500ms 計時視窗要不要換成等事件？作者：前一輪繼承的、這輪不動。review：機器忙一點就假綠燈，要嘛改要嘛明寫接受 (F28)
 3. ADR 放寬成兩個 writer，接受嗎？(F17)
+4. `/var/run/docker.sock` 改 666，接受嗎？(F9)
 
 ### 這輪之前
 七輪共 30 件：13 件已修（作者），含兩件 P1；3 件作者說延後；14 件還開著。
@@ -888,7 +891,7 @@ Where the decision layer's inputs come from:
 
 - "這個 PR 做什麼" and "它替你做的決定" — staff-engineer emits a `Change inventory:` block after its findings (three lines in the shape above, then `Decisions taken:` bullets); security-reviewer's posture notes and spec-auditor's C3 out-of-spec findings feed the third line and the decisions list.
 - "照現在 merge 會怎樣" — every open P0/P1/P2 after merge, dedup and caps, rewritten from `Failure mode` into who-sees-what form, then grouped by affected party.
-- "你要決定的" — the ⏸️ Awaiting-decision rows (author reason + `Recommend:` line), every ❓ Question produced by the Mitigation-shape scope rule, and any `要問你` from the decisions list.
+- "你要決定的" — the ⏸️ Awaiting-decision rows (author reason + `Recommend:` line), every finding whose `Mitigation:` was replaced by a scope `Question:`, the `deployment-assumption` ❓ when security-reviewer emitted one, and any `要問你` from the decisions list.
 - "這輪之前" — counts, not the 🔄 table.
 
 ### Category slugs
@@ -1078,7 +1081,7 @@ Status label values:
 
 Example (zh-TW PR):
 
-```markdown
+````markdown
 **F13 P2 `stale-app-bundle`** · 🆕 New
 
 **現在**：agent 改完 `packages/web/src/**` 重開 terminal 看 :3000，看到的還是改之前的 build，改動像沒生效。
@@ -1101,7 +1104,7 @@ optional hardening: if a full build per terminal boot is too slow, state the reb
 </details>
 
 <sub>blast: Local · reversible · confidence: high · justification: Reachable</sub>
-```
+````
 
 ### Spec gap questions (in sticky `<details>`)
 

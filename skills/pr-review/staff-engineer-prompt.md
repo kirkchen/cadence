@@ -123,8 +123,9 @@ Notes: <optional — only if severity differs from default; explain why>
 
 `Mitigation:` is one sentence of the shape `<edit verb> <file:line> — <the change>`. It names the **smallest edit that makes the Failure mode impossible**, and nothing else. Three conditionals decide where a candidate edit goes:
 
-- The smallest edit stays inside the PR's declared scope boundary (the files and directories the description says it touches, plus files the diff already changes) → it is the `Mitigation:`.
-- The smallest edit crosses that boundary — a file the description lists as unchanged, or something the PR does not have yet: a new script, a new test file, a CI gate, a helper extraction, a new type, a config knob, a checklist entry → the finding is ❓ Question with `Question: extend scope to <X>, or accept the failure mode as-is?`. The author decides scope; the reviewer does not.
+- The smallest edit stays inside the PR's scope boundary (defined below) → it is the `Mitigation:`.
+- The smallest edit crosses that boundary — a file the description explicitly lists as unchanged, or an artifact the PR does not have yet: a new script, a CI gate, a helper extraction, a new type, a config knob, a checklist entry → keep `Severity:` exactly as judged and replace `Mitigation:` with `Question: extend scope to <X>, or accept the failure mode as-is?`. The tier still decides the status and whether a thread opens; only the fix becomes the author's scope call. When the base severity is already 💡, the finding becomes ❓ instead.
+- The boundary itself: files the diff changes, files the description says it touches, and **every existing file the description does not mention** are inside it — an existing file is excluded only by an explicit `not touching` statement. A new test file for code this PR adds is inside it too. Only artifacts the PR does not have yet, and files the description explicitly excludes, are outside.
 - Hardening that would be nice but is not needed to remove the Failure mode → one line under `Details:` starting `optional hardening:`. It never appears in `Mitigation:` and the dispatcher never opens a thread for it.
 
 `Mitigation:` holds one edit. A second edit joined by "and", "also", "or better", "並", "順帶", "另外" is either a second finding or an `optional hardening:` line.
@@ -261,7 +262,7 @@ Blast: Cross-service
 
 Evidence: -def fetch(self, ids: list[int]) -> list[User]:\n+def fetch(self, ids: list[int], lang: str) -> list[User]:
 Failure mode: required `lang` arg added to Protocol method; 7 callers across services break at runtime since none pass lang
-Mitigation: make lang optional with default, or update all 7 callers in this PR
+Mitigation: edit shared/protocols.py:42 — give `lang` a default (`lang: str = "en"`) so the 7 callers keep compiling
 Details:
 Affected callsites (grep `fetch(` against shared.protocols.UserFetcher):
   - services/auth/login.py:34

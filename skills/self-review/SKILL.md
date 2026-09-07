@@ -416,7 +416,6 @@ Because you are codex (single agent, separate process), not a Claude subagent:
 - Finding Inclusion Threshold: Justification class (Reachable / Precedent /
   Asymmetric / Historical)
 - Drop signals (A), (C), (D)
-- Hygiene batch rule (cluster hygiene drops into one Q-class finding per file)
 - Race-class Finding Metadata: Mitigation MUST end with
   `[window=<ms|s|min|hr>, damage=<data-loss|deadlock|inconsistency|latency|marginal>, recovery=<has|no>]`
 - Per-prompt Output Schema (Severity / Confidence / Blast / Justification /
