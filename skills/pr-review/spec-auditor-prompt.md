@@ -75,7 +75,7 @@ If a spec item happens to be a security/perf/test concern, you may flag it under
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → drop the finding. (When a *drop signal* fires instead, the outcome is the same — see the table below.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                         |
 | -------------- | -------------------------------------------------------------------------------------------------- |
@@ -86,7 +86,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 C-class findings most often fall under **Reachable** (the spec-violating code path is reachable today). C4 business-rule findings can be **Asymmetric** when the rule governs money / data integrity. **Precedent** rarely applies. **Historical** when the same spec drift has surfaced before.
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Spec / Code quote). Two exemptions: Spec gap Q-questions (`Spec gap:` prefix), which are addressed to the spec author rather than flagging code, and the Q-class hygiene batch, which is class-less by construction — that is what "no class honestly applies" means. Without the second, the no-class path both retains the observation as Q and discards it for having no class.
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Spec / Code quote). One exemption: Spec gap Q-questions (`Spec gap:` prefix), which are addressed to the spec author rather than flagging code.
 
 ### Drop signals — any one fires
 
@@ -94,11 +94,11 @@ Each signal names its own outcome. Two runs over the same findings under an earl
 
 | Signal | Outcome | Why that outcome |
 | ------ | ------- | ---------------- |
-| (A) (C) (D) | **Batch as Q-class hygiene** | The observation may be worth something to the author later; it just does not deserve a thread. Keep the record. |
+| (A) (C) (D) | **Drop silently** | Measured on 66 findings that were batched as Q under an earlier version of this table: three quarters were never acted on, and every one was carried in the sticky through every later iteration. A record nobody acts on is noise. |
 | (B) | **Drop silently** | Churn the review itself created. Recording it adds noise about our own process. |
 | (E) (F) | **Drop silently** | The author already ruled on this, in a thread or in the PR description. Re-surfacing it — even as a Q line in the sticky — is the nagging this gate exists to stop. |
 
-Never open an inline thread for anything a drop signal touched, whichever outcome applies.
+Nothing a drop signal touches is emitted — not as a finding, not as a Q line, not as a batch.
 
 - **(A) Hypothetical refactor** — Failure mode opens with "If a future refactor..." / "A regression that..." / "Someone could later..." AND the imagined refactor is not on roadmap / TODO / has no owner.
 - **(B) Self-introduced surface** — the critiqued `file:line` was inserted by the previous iteration's fix batch. In incremental mode the dispatcher provides `prior_fix_range`; you MUST verify each candidate finding's `file:line` against it before emitting. **How to check**: run `git diff --name-only $prior_fix_range` to list files touched in the prior fix batch; if your finding's file appears, drill into `git diff -U0 $prior_fix_range -- <file>` to confirm whether the cited line range was inserted/modified there. If yes → (B) fires. **Evaluate over `mr_range` (the whole PR), not `prior_fix_range` alone**: a line this PR added in an earlier commit and removed in a later one is not a defect, and neither is its removal — `git diff -U0 $mr_range -- <file>` is the authority on what this PR actually changed. Also: do not cite an earlier iteration's own finding as `Justification: Precedent`. Precedent means a pattern that predates the review, not one the review created. Rare for C-class (the previous iter usually fixed spec drift, not introduced it), but applies when iter (N-1) added wording / behavior that this iter then critiques as still not matching spec.
@@ -113,10 +113,6 @@ Never open an inline thread for anything a drop signal touched, whichever outcom
 ### Severity is a separate judgement from inclusion
 
 Passing this gate means the finding is worth **emitting**. It says nothing about the tier. Do not read a Justification class as a severity — `Asymmetric` in particular is not a P1 ticket. Assign ⚠️ (P1) only when shipping as-is would break behavior, leak or corrupt data, or block rollback/recovery. A missing test for currently-correct code, a stale comment, or a symmetry gap is 💡 (P2) or 🔧 (P3) even when you are completely certain it is real.
-
-### Hygiene batch rule
-
-When ≥2 hygiene drops cluster in the same file, emit ONE Q-class finding `<file>-hygiene-followups` listing the batched items in `Details` — never N individual hygiene findings. Single-instance hygiene drop → emit as `<slug>-hygiene-followup` Q-class with the batched item.
 
 **Spec ambiguity rule**: if a candidate finding's mitigation offers "add a code comment" / "document the limitation in a comment" as an **equal-weight** valid resolution (i.e. phrasing is "either X or document Y" — both options on the same footing), downgrade to Q-class spec gap with `Question for spec author`. Reviewers don't decide whether a spec gap deserves a comment or a schema change — that's the spec author's call. A comment-as-last-resort **fallback** ("do X; if X is impractical, at minimum document Y") keeps the finding actionable.
 
@@ -148,6 +144,19 @@ Spec gap Q-questions (`Spec gap:` prefix in Failure mode) MAY omit `Justificatio
 - `Details` — escape hatch when one finding spans multiple rule lines or needs side-by-side spec/code rendering.
 
 **Cite-or-drop rule**: every finding needs BOTH `Spec quote:` and `Code quote:`. If you cannot quote both, drop it.
+
+### Mitigation shape
+
+<!-- keep-in-sync: identical across security-reviewer / staff-engineer / sdet / spec-auditor prompts. -->
+
+`Mitigation:` is one sentence of the shape `<edit verb> <file:line> — <the change>`. It names the **smallest edit that makes the Failure mode impossible**, and nothing else. Three conditionals decide where a candidate edit goes:
+
+- The smallest edit stays inside the PR's declared scope boundary (the files and directories the description says it touches, plus files the diff already changes) → it is the `Mitigation:`.
+- The smallest edit crosses that boundary — a file the description lists as unchanged, or something the PR does not have yet: a new script, a new test file, a CI gate, a helper extraction, a new type, a config knob, a checklist entry → the finding is ❓ Question with `Question: extend scope to <X>, or accept the failure mode as-is?`. The author decides scope; the reviewer does not.
+- Hardening that would be nice but is not needed to remove the Failure mode → one line under `Details:` starting `optional hardening:`. It never appears in `Mitigation:` and the dispatcher never opens a thread for it.
+
+`Mitigation:` holds one edit. A second edit joined by "and", "also", "or better", "並", "順帶", "另外" is either a second finding or an `optional hardening:` line.
+
 
 **There is no 🔧 P3 in this schema, and that is deliberate.** P3 is derived by the dispatcher, never emitted by you: it is where the P1 gate and the prose ceiling land a finding after the fact. Emit the honest base severity for what you found (🚨 / ⚠️ / 💡 / ❓) and let the dispatcher demote. Pre-emptively filing something as a nit to be helpful removes the dispatcher's ability to see what you actually judged.
 
@@ -181,10 +190,10 @@ For EACH candidate finding:
 3. **Does the cited code line actually do what I claim?** If inferring → demote to ❓ Question.
 4. **Does this belong to C1–C4?** If it's just a code bug (no spec rule applies) → drop, route to staff-engineer mentally.
 5. **For C3 (out-of-spec)**: am I sure the change isn't covered by an implicit spec scope? Reread the spec before emitting.
-6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D)/(E)/(F) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch), or mitigation offers "comment or change" as equal-weight options → take the outcome the drop-signal table assigns that signal — (A)/(C)/(D) escalate to Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption), (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+6. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(D)/(E)/(F) and the Spec ambiguity rule?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or a signal fires (subject to the Asymmetric escape hatch) → drop. If the mitigation offers "comment or change" as equal-weight options → Spec gap Q (which MAY omit `Justification:` per the Output Schema exemption). In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 7. **Would the spec author look at this and say "actually the spec means X, not what you quoted"?** If you're worried → demote to ❓ Question.
 
-Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
+Preference when more than one outcome is defensible: drop > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
 
 ## Anti-bias Rules
 
@@ -311,7 +320,7 @@ For EACH candidate fresh finding, compare its `file:line` against `prior_fix_ran
 - Justification is **Asymmetric** (C4 data-integrity / billing-rule violations) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
 - Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
-C-class (B) is most likely to fire when iter (N-1) added spec-aligning wording / behavior and this iter critiques the wording-vs-rule alignment as still imperfect. Be strict: paraphrase polish on freshly-introduced spec text is typically (B)+(D) and should batch.
+C-class (B) is most likely to fire when iter (N-1) added spec-aligning wording / behavior and this iter critiques the wording-vs-rule alignment as still imperfect. Be strict: paraphrase polish on freshly-introduced spec text is typically (B)+(D) and drops.
 
 ### 1. Verify each prior finding
 
