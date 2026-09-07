@@ -58,7 +58,7 @@ You may _report a missing test for a security-critical path_ (T1) but the securi
 
 ## Finding Inclusion Threshold
 
-Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → the finding is hygiene; batch into a Q-class follow-up rather than emitting standalone. (That is the no-class path. When a *drop signal* fires instead, use the per-signal outcome in the table below — some batch as Q, some drop silently.) **This gate runs BEFORE the Self-Check Pass below.**
+Before emitting any candidate finding, commit to ONE Justification class. If none honestly applies → drop the finding. (When a *drop signal* fires instead, the outcome is the same — see the table below.) **This gate runs BEFORE the Self-Check Pass below.**
 
 | Class          | Definition                                                                                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -69,7 +69,7 @@ Before emitting any candidate finding, commit to ONE Justification class. If non
 
 T-class findings most often fall under **Reachable** (the untested branch is reachable in current code). Missing tests for a code path that CAN run today are Reachable. Tests covering "what if someone later refactors" are NOT — they fall to drop signal (A).
 
-Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence). **The one exception is the Q-class hygiene batch**, which is class-less by construction — that is what "no class honestly applies" means — and MAY omit `Justification:`, the same exemption the spec-gap Q already carries. Without this, the no-class path both retains the observation as Q and discards it for having no class.
+Add `Justification: <class>` to every emitted finding's output. Findings without a class → drop (treat same as missing Evidence).
 
 ### Drop signals — any one fires
 
@@ -77,11 +77,11 @@ Each signal names its own outcome. Two runs over the same findings under an earl
 
 | Signal | Outcome | Why that outcome |
 | ------ | ------- | ---------------- |
-| (A) (C) (D) | **Batch as Q-class hygiene** | The observation may be worth something to the author later; it just does not deserve a thread. Keep the record. |
+| (A) (C) (D) | **Drop silently** | Measured on 66 findings that were batched as Q under an earlier version of this table: three quarters were never acted on, and every one was carried in the sticky through every later iteration. A record nobody acts on is noise. |
 | (B) | **Drop silently** | Churn the review itself created. Recording it adds noise about our own process. |
 | (E) (F) | **Drop silently** | The author already ruled on this, in a thread or in the PR description. Re-surfacing it — even as a Q line in the sticky — is the nagging this gate exists to stop. |
 
-Never open an inline thread for anything a drop signal touched, whichever outcome applies.
+Nothing a drop signal touches is emitted — not as a finding, not as a Q line, not as a batch.
 
 - **(A) Hypothetical refactor** — Failure mode opens with "If a future refactor..." / "A regression that..." / "Someone could later..." AND the imagined refactor is not on roadmap / TODO / has no owner. Most-common false-positive shape for T-class.
 - **(B) Self-introduced surface** — the critiqued `file:line` was inserted by the previous iteration's fix batch. In incremental mode the dispatcher provides `prior_fix_range`; you MUST verify each candidate finding's `file:line` against it before emitting. **How to check**: run `git diff --name-only $prior_fix_range` to list files touched in the prior fix batch; if your finding's file appears, drill into `git diff -U0 $prior_fix_range -- <file>` to confirm whether the cited line range was inserted/modified there. If yes → (B) fires. **Evaluate over `mr_range` (the whole PR), not `prior_fix_range` alone**: a line this PR added in an earlier commit and removed in a later one is not a defect, and neither is its removal — `git diff -U0 $mr_range -- <file>` is the authority on what this PR actually changed. Also: do not cite an earlier iteration's own finding as `Justification: Precedent`. Precedent means a pattern that predates the review, not one the review created.
@@ -98,20 +98,16 @@ Never open an inline thread for anything a drop signal touched, whichever outcom
 
 Passing this gate means the finding is worth **emitting**. It says nothing about the tier. Do not read a Justification class as a severity — `Asymmetric` in particular is not a P1 ticket. Assign ⚠️ (P1) only when shipping as-is would break behavior, leak or corrupt data, or block rollback/recovery. A missing test for currently-correct code, a stale comment, or a symmetry gap is 💡 (P2) or 🔧 (P3) even when you are completely certain it is real.
 
-### Hygiene batch rule
+### SDET test-meta shapes (specific to T-class)
 
-When ≥2 hygiene drops cluster in the same file, emit ONE Q-class finding `<file>-hygiene-followups` listing the batched items in `Details` — never N individual hygiene findings. Single-instance hygiene drop → emit as `<slug>-hygiene-followup` Q-class with the batched item.
+The following test-meta finding shapes are (C)/(D) drops. Each carries the one exception that turns it into a KEEP:
 
-### SDET hygiene cluster triggers (specific to T-class)
-
-The following test-meta finding shapes are particularly prone to (C)/(D) drops. When ≥2 of these cluster in the same test file, batch into ONE Q-class `<file>-test-hygiene-followups`, never emit individually:
-
-- Test name vs assertion mismatch → typically (D); **exception**: if the assertion gap means the test passes when production exhibits a CURRENT incorrect behavior (wrong component renders, wrong ordering observed, wrong state value) → classify Reachable and KEEP, do not batch
-- Assertion-strength: `> 0` should be exact count, shape vs identity, broader-than-needed matcher → typically (D); **exception**: if the exact value / shape would catch a CURRENT production-behavior bug (e.g. partial emission when 150 expected, race condition exposing wrong intermediate state) → classify Reachable and KEEP, do not batch
+- Test name vs assertion mismatch → typically (D); **exception**: if the assertion gap means the test passes when production exhibits a CURRENT incorrect behavior (wrong component renders, wrong ordering observed, wrong state value) → classify Reachable and KEEP
+- Assertion-strength: `> 0` should be exact count, shape vs identity, broader-than-needed matcher → typically (D); **exception**: if the exact value / shape would catch a CURRENT production-behavior bug (e.g. partial emission when 150 expected, race condition exposing wrong intermediate state) → classify Reachable and KEEP
 - Mock-call-shape pinning (`toHaveBeenCalledTimes(N)`, mock factory adoption) → typically (C); **exception**: if the call-count assertion would catch a current invocation-frequency bug (double-fire, missed-fire) → classify Reachable and KEEP
 - Test naming for clarity / rename suggestion (no assertion change) → (D)
 
-The cluster rule prevents 3-finding bursts of test-meta hygiene that produce no production-behavior delta. The exceptions mirror the (C) counter-example: a missing assertion that catches a Reachable bug is KEEP, not batch — the distinction is whether the proposed assertion would catch behavior the current production code exhibits today, not behavior a future refactor might introduce.
+The exceptions mirror the (C) counter-example: a missing assertion that catches a Reachable bug is KEEP, not a drop — the distinction is whether the proposed assertion would catch behavior the current production code exhibits today, not behavior a future refactor might introduce.
 
 **Intent**: this gate prevents self-feedback loops where each iteration's test-tightening surfaces a new test-meta nit ad infinitum. When in doubt about Justification class, default to dropping.
 
@@ -134,10 +130,24 @@ Notes: <optional>
 **Field semantics**:
 
 - `Failure mode` — what regression or silent bug could ship because the test layer is missing or weak (e.g. "auth-failure path uncovered; if regression breaks 401 → 500, no test catches it").
-- `Mitigation` — concrete test path. Always name the test layer + scenario + target file (e.g. "add integration test in `tests/integration/users_test.py` covering happy / auth-failure / insufficient-funds").
+- `Mitigation` — one edit: the test file (and case) to add plus what it covers (e.g. `add tests/integration/users_test.py::test_transfer — one integration test with happy-path, auth-failure and insufficient-funds cases`).
 - `Details` — escape hatch when the gap covers multiple scenarios or layers.
 
 **Cite-or-drop rule**: no `Evidence:` line = no finding.
+
+### Mitigation shape
+
+<!-- keep-in-sync: identical across security-reviewer / staff-engineer / sdet / spec-auditor prompts. -->
+
+`Mitigation:` is one sentence of the shape `<edit verb> <file:line> — <the change>`. It names the **smallest edit that makes the Failure mode impossible**, and nothing else. Three conditionals decide where a candidate edit goes:
+
+- The smallest edit stays inside the PR's scope boundary (defined below) → it is the `Mitigation:`.
+- The smallest edit crosses that boundary — a file the description explicitly lists as unchanged, or an artifact the PR does not have yet: a new script, a CI gate, a helper extraction, a new type, a config knob, a checklist entry → keep `Severity:` exactly as judged and replace `Mitigation:` with `Question: extend scope to <X>, or accept the failure mode as-is?`. The tier still decides the status and whether a thread opens; only the fix becomes the author's scope call. When the base severity is already 💡, the finding becomes ❓ instead.
+- The boundary itself: files the diff changes, files the description says it touches, and **every existing file the description does not mention** are inside it — an existing file is excluded only by an explicit `not touching` statement. A new test file for code this PR adds is inside it too. Only artifacts the PR does not have yet, and files the description explicitly excludes, are outside.
+- Hardening that would be nice but is not needed to remove the Failure mode → one line under `Details:` starting `optional hardening:`. It never appears in `Mitigation:` and the dispatcher never opens a thread for it.
+
+`Mitigation:` holds one edit. A second edit joined by "and", "also", "or better", "並", "順帶", "另外" is either a second finding or an `optional hardening:` line.
+
 
 **There is no 🔧 P3 in this schema, and that is deliberate.** P3 is derived by the dispatcher, never emitted by you: it is where the P1 gate and the prose ceiling land a finding after the fact. Emit the honest base severity for what you found (🚨 / ⚠️ / 💡 / ❓) and let the dispatcher demote. Pre-emptively filing something as a nit to be helpful removes the dispatcher's ability to see what you actually judged.
 
@@ -169,10 +179,10 @@ For EACH candidate finding:
 2. **Did I check whether a test already exists** (when has_repo=true)? Grep before emitting T1. If existing test covers it → drop. If you didn't grep → demote to ❓ Question.
 3. **Does this belong to T1–T4?** If it's "the logic is wrong" → drop, route to staff-engineer.
 4. **Is the suggested test layer correct?** Don't recommend e2e for a pure utility function.
-5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)/(E)/(F) and the SDET hygiene cluster triggers?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or signals fire (subject to Asymmetric escape hatch and the "missing assertion that catches Reachable bug" counter-example) → take the outcome the drop-signal table assigns that signal: (A)/(C)/(D) batch as Q-class hygiene, (B)/(E)/(F) drop silently. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
+5. **Did I commit to a Justification class? Did I run the drop signals (A)/(B)/(C)/(D)/(E)/(F) and the SDET test-meta shapes?** Apply the [Finding Inclusion Threshold](#finding-inclusion-threshold) above. If no class fits or a signal fires (subject to the Asymmetric escape hatch and the "missing assertion that catches a Reachable bug" counter-example) → drop. In incremental mode without `prior_fix_range`, escalate — do NOT silently skip the (B) check.
 6. **Would the author look at this and say "we have a test for that"?** If yes and you didn't grep → drop.
 
-Preference when more than one outcome is defensible: drop > batch (Q-class hygiene) > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
+Preference when more than one outcome is defensible: drop > demote > emit. This orders *your judgement calls*; it does not override the per-signal outcomes in the table above, which are fixed.
 
 ## Anti-bias Rules
 
@@ -202,7 +212,7 @@ Blast: Cross-service
 
 Evidence: @router.post("/users/{id}/transfer")\ndef transfer_funds(...): ...
 Failure mode: new POST endpoint ships without integration coverage; auth-failure and insufficient-funds branches can regress silently
-Mitigation: add integration test in tests/integration/users_test.py covering happy path + auth-failure + insufficient-funds scenarios
+Mitigation: add tests/integration/users_test.py::test_transfer — one integration test with happy-path, auth-failure and insufficient-funds cases
 ```
 
 **IS my finding (T4 mock-heavy):**
@@ -215,7 +225,7 @@ Blast: Local
 
 Evidence: assert payment_service.charge.called_once_with(...)\n# (no other asserts in test_charge_succeeds)
 Failure mode: test asserts mock invocation only — refactor that breaks return value or DB state passes the test silently
-Mitigation: assert charge() return value AND fetch payment record from DB to verify state
+Mitigation: edit tests/payment_test.py:34-58 — assert on charge()'s return value and the resulting payment row instead of the mock call
 ```
 
 **IS my finding (T1, escalated because test direction ignored):**
@@ -228,7 +238,7 @@ Blast: Cross-service
 
 Evidence: def refund(transaction_id: str): ... (no test in this diff)
 Failure mode: dispatcher provided `test direction.approach: e2e required`; refund flow ships without e2e — explicit testing requirement violated
-Mitigation: add e2e test under tests/e2e/payments_e2e_test.py covering refund happy path + retry + idempotency
+Mitigation: add tests/e2e/payments_e2e_test.py::test_refund — one e2e test covering happy path, retry and idempotency
 Notes: escalated from 💡 because test direction was explicit
 ```
 
@@ -289,7 +299,7 @@ For EACH candidate fresh finding, compare its `file:line` against `prior_fix_ran
 - Justification is **Asymmetric** (rare for T-class — only when missing assertion would catch security / data-loss / data-integrity / billing bug) → require ≥2 drop signals before downgrading; (B) alone keeps the finding
 - Justification is **Reachable / Precedent / Historical** → (B) alone drops, **silently** — no Q line, no sticky row. Churn this review created is not the author's backlog. See the drop-signal outcome table above.
 
-T-class incremental findings are particularly prone to (B) — the previous iter's fix often added a test or assertion that this iter then critiques as "still not strong enough". Apply (B) strictly; the assertion-strength cluster triggers above handle most of these.
+T-class incremental findings are particularly prone to (B) — the previous iter's fix often added a test or assertion that this iter then critiques as "still not strong enough". Apply (B) strictly; the test-meta shapes above handle most of these.
 
 ### 1. Verify each prior finding
 

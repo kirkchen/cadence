@@ -162,6 +162,7 @@ Missing → sdet uses heuristic from diff nature.
 - **Domain rules**: "tenant_id is required"
 - **Known trade-offs**: "we're aware of the N+1, will fix next sprint"
 - **Environment constraints**: "CDE service, security findings cannot be downgraded"
+- **Deployment context**: "runs in a per-developer sandbox VM; only port 3000 is forwarded, through the platform's tunnel" — passed to security-reviewer as its attacker-position input
 - **Hotfix narrowing**: "hotfix — only check critical security"
 - **Cross-PR coupling**: "ships together with PR #1234"
 
@@ -470,6 +471,7 @@ Allowed sources:
 - User-provided `spec`, `context`, `test direction`, and `repo rules`
 - Beat change artifacts or ADRs explicitly linked in the PR body or user-provided spec/context
 - Module README / repo instruction files selected by changed paths when the caller provides them as `repo rules`
+- **Deployment context** — the PR body's statements of where the changed code runs and who can reach it (target platform, environment, tenancy, which ports are exposed and how), or the same from the `context` input. Passed to subagents as `deployment context`. It is evidence about attacker position and blast radius, not a claim that the code is safe — a sentence of the second kind ("the bind is fine because…") stays excluded like any other author narrative.
 - **The dismissal ledger** — author replies harvested per [Reply harvesting](#reply-harvesting), from **both** channels it names: finding threads and standalone PR/MR comments that name the finding they answer. These are durable, attributable, on-the-record artifacts written in response to a specific finding, not conversation. A finding published without a line anchor has no thread, so excluding standalone comments would exclude its only possible reply.
 
 Do not include:
@@ -575,6 +577,7 @@ Each subagent receives:
 - Mode (`full` / `incremental`)
 - Compact context pack from [Context Hydration](#context-hydration)
 - Role-specific inputs only where applicable (spec content for spec-auditor, test direction for sdet)
+- Deployment context from [Context Hydration](#context-hydration), whenever the PR body or `context` input states one — security-reviewer's § Attacker position depends on it, and "none provided" is itself a value that means every network position is in play
 - In `incremental` mode (dispatcher MUST provide all four):
   - Prior findings JSON (subagent's own category scope only)
   - Prior `Checked & clean` slugs for drift spot-check
@@ -639,7 +642,7 @@ Notes: <optional — only if severity differs from default>
 - `Failure mode` — concrete bug / breach / drift consequence. Forces severity calibration: if you cannot describe what goes wrong in one line, you do not have a finding.
 - `Mitigation` — actionable fix. When the finding's resolution involves test coverage, name the test file and case (e.g. `add assert in foo_test.py:42 'rejects empty input' case`).
 - `Details` — escape hatch for findings whose explanation cannot fit one line (e.g. multi-step race, cross-file impact chain). Keep `Failure mode` and `Mitigation` as one-liners regardless; put narrative here.
-- `Justification` — required class declaring why the finding is worth emitting. See [Finding Inclusion Threshold](#finding-inclusion-threshold) below. Findings that cannot commit to one of the four classes MUST NOT be emitted as standalone findings; batch into a Q-class hygiene followup instead.
+- `Justification` — required class declaring why the finding is worth emitting. See [Finding Inclusion Threshold](#finding-inclusion-threshold) below. Findings that cannot commit to one of the four classes are not emitted at all — not standalone, not as a Q-class batch. (An earlier version batched them as `*-hygiene-followups` Q lines; measured across 66 such lines, three quarters were never acted on and all of them were carried through every later iteration.)
 
 After findings, each subagent emits `N/A categories: [<list>]` declaring which of its owned categories were reviewed and clean. This distinguishes "checked, found nothing" from "skipped".
 
@@ -730,7 +733,7 @@ Rationale for the iteration ramp: a one-line fix must not reach round seven on s
 
 ## Output Language
 
-PR-published prose (sticky shape narrative, `Failure mode` / `Mitigation` / `Details` content, spec gap question body, verification notes, framing text around code refs) renders in the PR description's primary language. Everything else — markers, section titles, field labels, kebab-case slugs, P-codes, severity / justification / status tokens, the race meta tag — stays English.
+PR-published prose (the decision layer and its headings, the inline body's `現在` / `建議` / `修法` / `判斷` lines and labels, sticky shape narrative, `Failure mode` / `Mitigation` / `Details` content, spec gap question body, verification notes, framing text around code refs) renders in the PR description's primary language. Everything else — markers, ledger section titles, field labels inside `<details>`, kebab-case slugs, P-codes, severity / justification / status tokens, the race meta tag — stays English.
 
 Fallback when the PR description lacks substantive prose: linked issue body, then English.
 
@@ -790,58 +793,106 @@ Everything else is P2 at most, regardless of how certain the finding is. Specifi
 
 **Do not assign a tier from a self-reported confidence score.** Verbalized LLM confidence is systematically overconfident and miscalibrated in one direction; at self-reported ≥0.8 a meaningful share of judgements is still wrong ([Siddiq et al., 2026](https://arxiv.org/html/2606.31159v1)). Confidence is a sort key for ordering, not a gate.
 
-### Summary line (top of sticky)
+### Decision layer (top of the sticky)
 
-The first visible line of the sticky is always the status heading. Do not prepend bot attribution such as `Automated review by pr-review skill`. The reader should know pass/fail before reading details.
+The sticky has two readers. The **supervisor** decides whether to merge and did not write the code — on an AI-authored PR that is every human reader. The **fix loop** (`pr-babysit`, the next incremental review) reads markers and the finding ledger. The decision layer is for the first reader and sits above everything else; the ledger sits in one collapsed `<details>` below it.
 
-```
+The decision layer answers three questions, in this order, and nothing else: what did this PR do, what happens if it merges as-is, what am I being asked to decide. It is written for someone who has not opened the diff and will not. Its shape:
+
+```markdown
+<!-- pr-review:sticky -->
+<!-- pr-review:version=3 -->
+<!-- pr-review:sha=<HEAD> -->
+<!-- pr-review:status=<token> -->
+
 ## <status-heading><, N awaiting your decision — only when N > 0>
 
 **Open**: <none | P0×N, P1×N, P2×N, P3×N, Q×N — only non-zero><, split as (N awaiting author, N awaiting decision) when any finding has an author reply> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
-**Checked**: ✅ <N> clean
-**Next action**: <one-line: optional for PASSED, required otherwise. Name who is on the hook — the author for unanswered findings, the reader for awaiting-decision ones.>
+
+### 這個 PR 做什麼
+<一句：使用者或 operator 得到什麼。>
+<一句：動到哪裡，白話；結尾寫「prod 不受影響」或「會動到 <X>」。>
+描述沒提但 diff 有：<一句，或「無」。>
+
+### 它替你做的決定
+- <決定> → <後果一句> · 可接受 | 要問你 (F<n>)
+
+### 照現在 merge 會怎樣
+- 對使用它的人：<**現在**：<誰現在遇到什麼> · **建議**：<改完之後的行為> · 修 | 接受 | 問你 (F<n>)>，或「無」
+- 對 CI 與本機開發：<同上>，或「無」
+- 對 prod：<同上>，或「無」
+另有 N 件較輕的在明細。
+
+### 你要決定的
+1. <問題？> 作者：<理由一句>。review：<建議一句> (F<n>)
+（或：沒有，修完上面就能 merge。）
+
+### 這輪之前
+<一句：N 件已修（誰修的）、N 件作者說不修、N 件等你。incremental only.>
+
+**建議**：merge | 修完 <X> 再 merge | 先別 merge：<why>
+
+<details><summary>明細（fix loop 與想深挖的人看這裡）</summary>
+<the ledger — see [Ledger](#ledger-inside-the-details-block)>
+</details>
 ```
 
-The heading suffix and the `Open:` split are the whole point of the awaiting-decision state: **the tier does not move, the total does not move, but the top line does.** A reader who glances at nothing else still learns that the ball moved into their court. An author who replies sees their reply register.
+Shape rules — each is a hard bound, not a preference:
 
-Examples:
+- **The first visible line is the status heading**, with the `, N awaiting your decision` suffix whenever N > 0 and no bot attribution before it. The suffix and the `Open:` split are what tells a reader at a glance that a reply moved the ball into their court.
+- **Every bullet is one line.** No sub-clauses explaining why, no second sentence. The explanation lives in the inline thread the F-id points at.
+- **"這個 PR 做什麼" is exactly three lines** as shown. The third line is where the diff and the description disagree — scope the description said it would not touch, a switch or default it did not mention, a file count that is wrong. When they agree, it says `無`.
+- **Consequences are grouped by who is affected**, never by severity or category. Each group holds at most two bullets; a group with nothing says `無`. What did not fit is one line, `另有 N 件較輕的在明細`. A consequence is two clauses: **現在** — what the affected party runs into today, in what they can see (`agent 改完 code 跑 e2e 會對舊 build 綠燈`), never the code (`.next 沒重建`); **建議** — the behaviour after the fix (`改完自動重 build`), never the edit. The edit lives in the inline thread the F-id points at.
+- **"它替你做的決定" lists choices a human author would have asked about first**: a new dependency, a new env var or switch, a schema change, a changed default, a new endpoint or permission, a deleted or weakened test, a security-posture change, work outside the described scope. At most five; omit the section when there are none. The verdict at the end of the line is the review's: `可接受` when the choice is ordinary for this repo, `要問你` when it is not.
+- **"你要決定的" holds only things the reader must rule on**: an author's wontfix or deferral (author's reason, review's recommendation), a scope-extension question, a decision from the section above marked `要問你`. Nothing already recommended `修` appears here.
+- **Tokens that do not appear in this layer**: `file:line`, CWE, `Blast`, `Confidence`, `Justification`, slugs, category names, subagent names, mutation-testing narration.
+- **Total: at most 25 non-blank lines**, counting the `**Open**` and `**建議**` lines themselves. If the review cannot fit, it trims the consequence groups, never the other sections.
+- **The ledger below carries only the prescribed sections** — 📋 Currently open · ⏸️ Awaiting your decision · ↪ Accepted exceptions · 📍 Inline comments · ⚖️ Severity adjustments · 🔄 Last iteration changes · 📊 Overview by category · ❓ Spec gap questions · ✅ Checked & clean · footer. No improvised sections (process disclosures, per-finding essays, verification narratives); a finding's full text is its inline thread.
+- **Language**: the PR description's language, like the rest of the published prose.
 
+Example — a sandbox-environment PR on its seventh iteration, 24 non-blank lines:
+
+```markdown
+## 🟡 pr-review: PASSED WITH NOTES, 3 awaiting your decision
+
+**Open**: P2×5, Q×12（14 awaiting author, 3 awaiting decision）· **Reviewed HEAD**: `a94d2fc7` · **Mode**: incremental
+
+### 這個 PR 做什麼
+雲端沙箱 VM 開機就能跑 lint / test / e2e，並在 :3000 起 web app（dev 帳密登入）。
+新增 `.sandbox/` 六個檔，另加一支 build 鎖測試進 pre-push、`.sandbox/**` 進 CI filter、改寫 ADR；prod 不受影響。
+描述沒提但 diff 有：描述說「tests、CI workflows 不動、+5 files」，實際 11 個檔、5 個在 `.sandbox/` 外。
+
+### 它替你做的決定
+- `flock(1)` 變成 pre-push 硬依賴 → macOS 沒有時該測試跳過而不擋 push · 可接受 (F31)
+- `.sandbox/**` 加進 CI `changes.code` filter → 只改 `.sandbox/` 的 PR 也跑整套 lint / build / test · 可接受
+- ADR 從「只有 e2e harness 設這組 override」放寬成兩個 writer → 安全邊界從機制降成 loopback bind 加一句政策 · 要問你 (F17)
+- `/var/run/docker.sock` 改 666 → VM 內任何本機使用者拿到等同 root 的 Docker 控制權 · 要問你 (F9)
+
+### 照現在 merge 會怎樣
+- 對使用它的人：無
+- 對 CI 與本機開發：**現在**：install 跟 app terminal 的 build 撞在一起仍會寫壞 `.next`，README 卻說撞不壞 · **建議**：兩邊的 build 都走同一把鎖，README 的宣稱才成立 · 修 (F26)
+- 對 CI 與本機開發：**現在**：鎖測試探測 `flock` 失敗時整個跳過，輸出跟通過一樣 · **建議**：探測失敗要以失敗收場，跟 `flock` 不存在分開 · 修 (F34)
+- 對 prod：無
+另有 12 件較輕的在明細。
+
+### 你要決定的
+1. install 的 build 要不要走鎖？作者：這輪沒碰。review：不同意，README 的宣稱現在是假的，一行改動 (F26)
+2. 鎖測試的 500ms 計時視窗要不要換成等事件？作者：前一輪繼承的、這輪不動。review：機器忙一點就假綠燈，要嘛改要嘛明寫接受 (F28)
+3. ADR 放寬成兩個 writer，接受嗎？(F17)
+4. `/var/run/docker.sock` 改 666，接受嗎？(F9)
+
+### 這輪之前
+七輪共 30 件：13 件已修（作者），含兩件 P1；2 件作者說延後；15 件還開著。
+
+**建議**：修完 F26 再 merge；F34 留 follow-up。
 ```
-## ✅ pr-review: PASSED
 
-**Open**: none · **Reviewed HEAD**: `abc1234` · **Mode**: full
-**Checked**: ✅ 11 clean
+Where the decision layer's inputs come from:
 
-## 🟡 pr-review: PASSED WITH NOTES
-
-**Open**: P2×1, P3×3, Q×1 · **Reviewed HEAD**: `abc1234` · **Mode**: full
-**Checked**: ✅ 11 clean
-**Next action**: optional; no blocker
-
-## 🟠 pr-review: REVIEW BEFORE MERGE
-
-**Open**: P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: incremental
-**Checked**: ✅ 11 clean
-**Next action**: fix F2/F4 or explicitly defer
-
-## 🟠 pr-review: REVIEW BEFORE MERGE, 2 awaiting your decision
-
-**Open**: P1×3 (1 awaiting author, 2 awaiting decision) · **Reviewed HEAD**: `abc1234` · **Mode**: incremental
-**Checked**: ✅ 11 clean
-**Next action**: rule on F3 and F7 below; F5 still unanswered by the author
-
-## 🔴 pr-review: BLOCKED
-
-**Open**: P0×1, P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: incremental
-**Checked**: ✅ 11 clean
-**Next action**: fix F1 before merge
-
-## ⚠️ pr-review: PARTIAL
-
-**Open**: P1×2 · **Reviewed HEAD**: `abc1234` · **Mode**: full
-**Checked**: ✅ 8 clean
-**Next action**: rerun review; security-reviewer failed
-```
+- "這個 PR 做什麼" and "它替你做的決定" — staff-engineer emits a `Change inventory:` block after its findings (three lines in the shape above, then `Decisions taken:` bullets); security-reviewer's posture notes and spec-auditor's C3 out-of-spec findings feed the third line and the decisions list.
+- "照現在 merge 會怎樣" — every open P0/P1/P2 after merge, dedup and caps, rewritten from `Failure mode` into who-sees-what form, then grouped by affected party.
+- "你要決定的" — the ⏸️ Awaiting-decision rows (author reason + `Recommend:` line), every finding whose `Mitigation:` was replaced by a scope `Question:`, the `deployment-assumption` ❓ when security-reviewer emitted one, and any `要問你` from the decisions list.
+- "這輪之前" — counts, not the 🔄 table.
 
 ### Category slugs
 
@@ -854,21 +905,12 @@ Convert each subagent's `[<code> <name>]` to a kebab-case slug for output. Drop 
 
 When semantic slug differs from the literal category name, prefer semantic. The slug is the navigation handle reviewers see; pick the term that conveys "what kind of problem" most directly.
 
-### Sticky comment template
+### Ledger (inside the details block)
+
+The `<details>` block carries the sections below and **nothing else** — no process disclosures, no per-finding essays, no verification narratives. A finding's full text is its inline thread; the ledger is the index the fix loop reads.
 
 ```markdown
-<!-- pr-review:sticky -->
-<!-- pr-review:version=2 -->
-<!-- pr-review:sha=<HEAD> -->
-<!-- pr-review:status=<PASSED|PASSED_WITH_NOTES|REVIEW_BEFORE_MERGE|BLOCKED|PARTIAL> -->
-
-## <status-heading>
-
-**Open**: <none | non-zero buckets> · **Reviewed HEAD**: `<HEAD>` · **Mode**: <full|incremental>
-**Checked**: ✅ <N> clean
-**Next action**: <one-line: optional only when PASSED>
-
-> <one-line shape narrative — what's the issue cluster; render in PR description language. English example: "observability + state-consistency form two P1 clusters; security clean">
+> <one-line shape narrative — what's the issue cluster; render in PR description language>
 
 ## 📋 Currently open (<N>) — awaiting author
 
@@ -889,11 +931,11 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 </details>
 
-📍 **Inline comments**: <N> findings pinned to source lines (see the Files changed tab) — render this locator line in PR description language
+📍 **Inline comments**: <N> findings pinned to source lines (see the Files changed tab)
 
 ## ⚖️ Severity adjustments
 
-<rendered only when ≥1 adjustment exists; NOT inside <details>; see template below>
+<rendered only when ≥1 adjustment exists; see template below>
 
 ## 🔄 Last iteration changes (`<last_sha>..<HEAD>`)
 
@@ -927,20 +969,17 @@ When semantic slug differs from the literal category name, prefer semantic. The 
 
 Rules:
 
-- The first visible line MUST be the status heading. Do not render bot attribution before it.
 - `Open` counts only unaccepted findings, across **every** tier including P3 — a review whose findings are all P3 reports `Open: P3×N`, never `Open: none`. `none` means zero findings at any tier. Accepted exceptions appear in their own section and do not block `PASSED WITH NOTES`.
-- `Next action` is mandatory for `PARTIAL`, `BLOCKED`, `REVIEW BEFORE MERGE`, and `PASSED WITH NOTES`; omit only for clean `PASSED`.
-- Shape narrative mandatory when ≥2 findings; optional for 0-1
-- `📋 Currently open` rendered **flat** (no `<details>`) when ≥1 finding is not yet `Likely fixed` **and** has no author reply; one bullet per finding, sorted P0→P1→P2→P3→Q then by file path. P3 rows collapse to a single `🔧 <N> nits` line once more than five exist. Omit the section entirely when empty (avoid empty heading)
-- `⏸️ Awaiting your decision` rendered **flat** whenever ≥1 finding has an author reply classed `rebutted` / `wontfix` / `deferred`. Never collapsed — this is the section a reader is being asked to act on. Its findings stay in the `Open:` total and in the status-tier calculation; moving here changes who is waiting, not whether it blocks. Omit when empty.
+- `📋 Currently open` rendered **flat** (no nested `<details>`) when ≥1 finding is not yet `Likely fixed` **and** has no author reply; one bullet per finding, sorted P0→P1→P2→P3→Q then by file path. P3 rows collapse to a single `🔧 <N> nits` line once more than five exist. Omit the section entirely when empty (avoid empty heading)
+- `⏸️ Awaiting your decision` rendered whenever ≥1 finding has an author reply classed `rebutted` / `wontfix` / `deferred`. Its findings stay in the `Open:` total and in the status-tier calculation; moving here changes who is waiting, not whether it blocks. Omit when empty. Every row here also has a line in the decision layer's "你要決定的".
 - Every `⏸️` row MUST carry both the author's reason and a `Recommend:` line. A row with no recommendation is worse than no section: it asks the reader to re-derive the whole finding from the thread, which is the work the section exists to save.
-- `↪ Accepted exceptions` always in `<details>` (collapsed) — these are *decided*, so they are audit trail rather than work. Each row names its `accepted_by`, which is never the PR author. Omit when empty.
-- `📊 Overview by category` always in `<details>` (collapsed); rows omitted where P0/P1/P2/P3/Q are all zero. Collapsed by default — summary line already conveys totals; the table is for drill-down only
+- `↪ Accepted exceptions` always in nested `<details>` (collapsed) — these are *decided*, so they are audit trail rather than work. Each row names its `accepted_by`, which is never the PR author. Omit when empty.
+- `📊 Overview by category` always in nested `<details>` (collapsed); rows omitted where P0/P1/P2/P3/Q are all zero.
 - `📍 Inline comments` line shown when ≥1 P0/P1/P2 finding posted inline; omit otherwise
-- `Severity adjustments` rendered **flat** (no `<details>`) when any adjustment exists — discipline requirement, never silent
+- `Severity adjustments` rendered **flat** when any adjustment exists — discipline requirement, never silent
 - `🔄 Last iteration changes` rendered **flat** in incremental mode; shows ONLY this iter's verifications (`<last_sha>..<HEAD>`), never cumulative across older iterations. Audit trail for older iters lives in git history (commits + prior inline comment threads), not in the sticky
-- `Spec gap questions` always in `<details>` (collapsed) — verbose; secondary to actionable findings
-- `Checked & clean` always in `<details>` (collapsed) — count is the load-bearing signal; expand for trust calibration
+- `Spec gap questions` always in nested `<details>` (collapsed) — verbose; secondary to actionable findings
+- `Checked & clean` always in nested `<details>` (collapsed) — one line per slug, no methodology narrative
 
 ### Severity adjustments section
 
@@ -985,6 +1024,8 @@ Follow-up / wontfix / by-design rows MUST also appear under `↪ Accepted except
 
 One per P0 / P1 / P2 finding emitted in this iteration. Anchored to the diff via the platform's inline endpoint — GitHub: one batched review (`event=COMMENT`); GitLab: one discussion per finding carrying a `position` (see [Platform](#platform)). Opening a new root comment for the same finding in a later iteration is allowed, but the root MUST keep the same `F<n>` finding ID, use this template, link to the sticky, and link to the previous thread when known.
 
+The body has the same two readers as the sticky. The first four visible lines are for the person deciding whether to act, in the PR's language: what happens **now**, what the review **suggests** the behaviour should be, the **edit** that gets there, and whether to fix. Everything the fix loop needs beyond that — the subagent's failure mode, the evidence, the links — sits in one collapsed block below them.
+
 ````markdown
 <!-- pr-review:finding-root -->
 <!-- pr-review:finding-id=F<n> -->
@@ -995,19 +1036,22 @@ One per P0 / P1 / P2 finding emitted in this iteration. Anchored to the diff via
 
 **F<n> <P-code> `<slug>`** · <status-label>
 
-**Sticky summary**: <sticky-comment-url>
-**Iteration**: `<last_sha>..<HEAD>`<br>
-**Previous thread**: <url — omit when none>
+**現在**：<一句：使用者或 operator 現在會遇到什麼，用他們看得到的事講>
+**建議**：<一句：改完之後的行為>
+**修法**：<一個 edit：`<file:line>` 加上要做的事，一句。修法跨出 PR 範圍時，這一行就是那個 scope 問句「要不要把範圍擴到 <X>，還是接受現狀？」>
+**判斷**：修 | 接受 | 問你 — <幾個字的理由，例如「一行改動」「只影響沙箱」>
 
-**Failure mode**: <one-line>
+<details><summary>細節</summary>
 
-**Mitigation**: <one-line; cite test path when applicable>
-
-<details><summary>Evidence</summary>
+**Mitigation**: <the same edit as 修法, in the subagent's own words; cite test path when applicable; race meta tag stays here>
+**Failure mode**: <the subagent's one-line, for the fix loop>
+optional hardening: <if any>
 
 ```diff
 <verbatim diff line(s)>
 ```
+
+**Sticky summary**: <sticky-comment-url> · **Iteration**: `<last_sha>..<HEAD>` · **Previous thread**: <url — omit when none>
 
 </details>
 
@@ -1016,7 +1060,9 @@ One per P0 / P1 / P2 finding emitted in this iteration. Anchored to the diff via
 <!-- pr-review:justification=<Reachable|Precedent|Asymmetric|Historical|Hygiene> -->
 ````
 
-The root markers are consumed by `pr-babysit` and by later incremental reviews. The `justification` HTML marker is consumed by `pr-babysit`'s diminishing-returns gate to decide whether to keep looping or hand back to the user. `Hygiene` value is reserved for batched Q-class hygiene followups; never emit `Hygiene` on a P0/P1/P2 finding.
+The four reader-facing labels (`現在` / `建議` / `修法` / `判斷`, or `Now` / `Suggest` / `Fix` / `Call` when the PR is in English) render in the PR's language; every label inside `<details>` stays English. `現在` describes the behaviour, never the code (`改完重開 terminal 看到的還是舊 build`, not `.next 沒重建`); `建議` describes the behaviour after the fix, never the edit (`改完自動重 build`); `修法` is the one edit — `file:line` plus what to do, one sentence, the same edit `Mitigation:` carries inside `<details>` in the subagent's words. When the subagent replaced `Mitigation:` with a scope `Question:`, `修法` renders that question and `判斷` is `問你`.
+
+The root markers are consumed by `pr-babysit` and by later incremental reviews. The `justification` HTML marker is consumed by `pr-babysit`'s diminishing-returns gate to decide whether to keep looping or hand back to the user; its race-class parser reads the `[window=…, damage=…, recovery=…]` tag from anywhere in the body, so the tag travels with `Mitigation:` inside `<details>`. `Hygiene` is kept in the value list for `pr-babysit` compatibility; pr-review no longer emits it (hygiene drops are silent), and it must never appear on a P0/P1/P2 finding.
 
 Status label values:
 
@@ -1032,6 +1078,33 @@ Status label values:
 - `reversible` — code-only change, additive feature, refactor without state migration
 - `not reversible` — destructive migration, breaking contract change, irreversible side effect (sent message, deleted data)
 - omit if ambiguous (don't guess)
+
+Example (zh-TW PR):
+
+````markdown
+**F13 P2 `stale-app-bundle`** · 🆕 New
+
+**現在**：agent 改完 `packages/web/src/**` 重開 terminal 看 :3000，看到的還是改之前的 build，改動像沒生效。
+**建議**：改完之後自動重 build，讓改動生效。
+**修法**：`run-app.sh:58` 在 migrate / `next start` 前先跑 `pnpm --filter web build`。
+**判斷**：修 — 一行改動。
+
+<details><summary>細節</summary>
+
+**Mitigation**: edit `.sandbox/run-app.sh:58` — run `pnpm --filter web build` before the migrate / `next start` pair.
+**Failure mode**: `next start` serves whatever `install.sh` built; nothing rebuilds `.next` after a source edit, so the browser renders the pre-edit bundle silently.
+optional hardening: if a full build per terminal boot is too slow, state the rebuild-before-restart rule in `.sandbox/README.md:24` instead.
+
+```diff
++exec pnpm --filter web exec next start --port 3000
+```
+
+**Sticky summary**: <url> · **Iteration**: `f71b92da..6ccb09af`
+
+</details>
+
+<sub>blast: Local · reversible · confidence: high · justification: Reachable</sub>
+````
 
 ### Spec gap questions (in sticky `<details>`)
 
@@ -1064,6 +1137,8 @@ Q findings do **not** become inline comments — they're often cross-file concep
 | `<subagent>/` namespace prefix on slugs              | leaks subagent identity; bare slug reads cleaner                              |
 | `Checked & clean` grouped under subagent headers     | same — flat topic list                                                        |
 | Empty `Severity adjustments` section heading         | render section only when content exists                                       |
+| Process disclosures, per-finding essays, mutation / verification narratives in the sticky | the sticky is an index; the finding's full text is its inline thread, the method is the subagent's report |
+| A `Checked:` count or `Next action:` line above the decision layer | the decision layer's `**建議**` line is the next action; the checked count lives in the ledger |
 
 ## Publishing
 
@@ -1108,7 +1183,7 @@ digraph publish {
 
 The `Evidence:` cite-or-drop rule is enforced at emission, but emission is not where it fails. Assert on the *rendered payload*, immediately before posting:
 
-1. **Evidence block is non-empty.** Every inline root must contain a `<summary>Evidence</summary>` block with at least one non-whitespace line. An empty block means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
+1. **Evidence is non-empty.** Every inline root must contain its collapsed `<details>` block (`細節` in the template) with a diff fence holding at least one non-whitespace line. An empty fence means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
 2. **No swallowed identifiers.** `Failure mode` and `Mitigation` must not contain a run of two or more spaces between non-space characters. That gap is where an inline-code span used to be; a body reading "若 X 期間 ␣␣ 拋例外，␣␣ 寫入 ␣␣ 而非 ␣␣" is unreadable and tells the author nothing.
 3. **Body round-trips.** Build every payload by writing the markdown to a file and passing it as a file argument (`--input`, `-F body=@file`). Never interpolate finding markdown into a double-quoted shell string.
 
@@ -1153,7 +1228,7 @@ Pick endpoints by `$PLATFORM` (see [Platform](#platform)). The five steps are id
 
 ```
 <!-- pr-review:sticky -->
-<!-- pr-review:version=2 -->
+<!-- pr-review:version=3 -->
 <!-- pr-review:sha=$HEAD -->
 <!-- pr-review:status=$STATUS_TOKEN -->
 ```
@@ -1195,11 +1270,13 @@ gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
 # 5. inline — one batched review. Skip when none this iteration.
 # Write it as "$PAYLOAD_DIR/inline-comments.json":
 # [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
+# `-F comments=@file` sends the file as ONE STRING and GitHub answers 422 "comments is not an
+# array"; build the whole review body with jq and pass it via --input (verified live).
 if [ "$(jq 'length' "$PAYLOAD_DIR/inline-comments.json")" -gt 0 ]; then
-  gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
-    -F event=COMMENT \
-    -F body="pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
-    -F comments=@"$PAYLOAD_DIR/inline-comments.json" && POSTED=1
+  jq -n --arg body "pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
+        --slurpfile comments "$PAYLOAD_DIR/inline-comments.json" \
+        '{event: "COMMENT", body: $body, comments: $comments[0]}' > "$PAYLOAD_DIR/review.json"
+  gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews --input "$PAYLOAD_DIR/review.json" && POSTED=1
 fi
 
 # 6. reconcile — rebuild sticky.md from the threads that actually posted, then PATCH again.
