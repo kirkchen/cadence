@@ -226,7 +226,7 @@ Blast: Cross-service
 Spec quote: "Order quantity must be ≥ 1 and ≤ 100."
 Code quote: if quantity > 0 and quantity < 100:
 Failure mode: spec mandates inclusive bounds (≥1 and ≤100); code rejects quantity=100, blocking valid orders at the upper bound
-Mitigation: change to `quantity >= 1 and quantity <= 100`
+Mitigation: edit api/orders/handler.py:42 — change to `quantity >= 1 and quantity <= 100`
 ```
 
 **IS my finding (C2 missing requirement):**
@@ -254,7 +254,7 @@ Blast: Module
 Spec quote: "Add refund endpoint to /api/orders."
 Code quote: +def update_user_avatar(user_id, image_url): ...
 Failure mode: diff adds avatar endpoint outside spec scope; if unintentional, ships untested behavior under refund-PR review umbrella
-Mitigation: confirm with PR author and spec author whether avatar change is intentional scope expansion
+Question: is the avatar change an intentional scope expansion? — for the PR author and the spec author; no edit proposed until they answer
 ```
 
 **IS my finding (Spec gap, ❓):**
@@ -268,7 +268,7 @@ Blast: N/A
 Spec quote: "Reject invalid requests."
 Code quote: if not is_valid: raise ValidationError("invalid")
 Failure mode: Spec gap — spec doesn't define invalidity criteria or error contract; code's ValidationError("invalid") choice is arbitrary, future spec clarification may require breaking change
-Mitigation: spec author please define invalidity criteria and error contract
+Question: spec author — define the invalidity criteria and the error contract; no code edit until then
 ```
 
 **NOT my finding (pure code bug, no spec rule — do not emit):**

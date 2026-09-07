@@ -130,7 +130,7 @@ Notes: <optional>
 **Field semantics**:
 
 - `Failure mode` — what regression or silent bug could ship because the test layer is missing or weak (e.g. "auth-failure path uncovered; if regression breaks 401 → 500, no test catches it").
-- `Mitigation` — concrete test path. Always name the test layer + scenario + target file (e.g. "add integration test in `tests/integration/users_test.py` covering happy / auth-failure / insufficient-funds").
+- `Mitigation` — one edit: the test file (and case) to add plus what it covers (e.g. `add tests/integration/users_test.py::test_transfer — one integration test with happy-path, auth-failure and insufficient-funds cases`).
 - `Details` — escape hatch when the gap covers multiple scenarios or layers.
 
 **Cite-or-drop rule**: no `Evidence:` line = no finding.
