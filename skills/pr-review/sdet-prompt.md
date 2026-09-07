@@ -212,7 +212,7 @@ Blast: Cross-service
 
 Evidence: @router.post("/users/{id}/transfer")\ndef transfer_funds(...): ...
 Failure mode: new POST endpoint ships without integration coverage; auth-failure and insufficient-funds branches can regress silently
-Mitigation: add integration test in tests/integration/users_test.py covering happy path + auth-failure + insufficient-funds scenarios
+Mitigation: add tests/integration/users_test.py::test_transfer — one integration test with happy-path, auth-failure and insufficient-funds cases
 ```
 
 **IS my finding (T4 mock-heavy):**
@@ -238,7 +238,7 @@ Blast: Cross-service
 
 Evidence: def refund(transaction_id: str): ... (no test in this diff)
 Failure mode: dispatcher provided `test direction.approach: e2e required`; refund flow ships without e2e — explicit testing requirement violated
-Mitigation: add e2e test under tests/e2e/payments_e2e_test.py covering refund happy path + retry + idempotency
+Mitigation: add tests/e2e/payments_e2e_test.py::test_refund — one e2e test covering happy path, retry and idempotency
 Notes: escalated from 💡 because test direction was explicit
 ```
 

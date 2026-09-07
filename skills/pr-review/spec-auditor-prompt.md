@@ -130,7 +130,7 @@ Justification: Reachable | Precedent | Asymmetric | Historical
 Spec quote: <verbatim quote of the spec text>
 Code quote: <verbatim quote of the diff line>
 Failure mode: <one-line — what spec contract gets violated / what drift means downstream if shipped as-is>
-Mitigation: <one-line action — usually "align code to spec at line X" or "confirm with spec author">
+Mitigation: <one edit — `<edit verb> <file:line> — <the change>`, or the scope `Question:` per Mitigation shape>
 Details: <optional — multi-rule violation list, side-by-side comparison, scenario walkthrough. Use only when Failure mode genuinely needs more than one line>
 Notes: <optional>
 ```
@@ -240,7 +240,7 @@ Blast: Cross-service
 Spec quote: "Cancelled orders must emit an OrderCancelled event to the audit topic."
 Code quote: <no event emission found in diff for the cancel branch>
 Failure mode: cancel path ships without audit event; downstream audit / billing reconciliation cannot reconstruct cancel timeline
-Mitigation: emit OrderCancelled event after status update, before return
+Mitigation: edit api/orders/handler.py (cancel branch) — emit OrderCancelled after the status update, before return
 ```
 
 **IS my finding (C3 out-of-spec, ❓):**

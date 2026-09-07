@@ -850,12 +850,12 @@ Shape rules — each is a hard bound, not a preference:
 - **The ledger below carries only the prescribed sections** — 📋 Currently open · ⏸️ Awaiting your decision · ↪ Accepted exceptions · 📍 Inline comments · ⚖️ Severity adjustments · 🔄 Last iteration changes · 📊 Overview by category · ❓ Spec gap questions · ✅ Checked & clean · footer. No improvised sections (process disclosures, per-finding essays, verification narratives); a finding's full text is its inline thread.
 - **Language**: the PR description's language, like the rest of the published prose.
 
-Example — a sandbox-environment PR on its seventh iteration, 22 lines:
+Example — a sandbox-environment PR on its seventh iteration, 24 non-blank lines:
 
 ```markdown
 ## 🟡 pr-review: PASSED WITH NOTES, 3 awaiting your decision
 
-**Open**: P2×5, Q×12 · **Reviewed HEAD**: `a94d2fc7` · **Mode**: incremental
+**Open**: P2×5, Q×12（14 awaiting author, 3 awaiting decision）· **Reviewed HEAD**: `a94d2fc7` · **Mode**: incremental
 
 ### 這個 PR 做什麼
 雲端沙箱 VM 開機就能跑 lint / test / e2e，並在 :3000 起 web app（dev 帳密登入）。
@@ -882,7 +882,7 @@ Example — a sandbox-environment PR on its seventh iteration, 22 lines:
 4. `/var/run/docker.sock` 改 666，接受嗎？(F9)
 
 ### 這輪之前
-七輪共 30 件：13 件已修（作者），含兩件 P1；3 件作者說延後；14 件還開著。
+七輪共 30 件：13 件已修（作者），含兩件 P1；2 件作者說延後；15 件還開著。
 
 **建議**：修完 F26 再 merge；F34 留 follow-up。
 ```
@@ -1038,7 +1038,7 @@ The body has the same two readers as the sticky. The first four visible lines ar
 
 **現在**：<一句：使用者或 operator 現在會遇到什麼，用他們看得到的事講>
 **建議**：<一句：改完之後的行為>
-**修法**：<一個 edit：`<file:line>` 加上要做的事，一句>
+**修法**：<一個 edit：`<file:line>` 加上要做的事，一句。修法跨出 PR 範圍時，這一行就是那個 scope 問句「要不要把範圍擴到 <X>，還是接受現狀？」>
 **判斷**：修 | 接受 | 問你 — <幾個字的理由，例如「一行改動」「只影響沙箱」>
 
 <details><summary>細節</summary>
@@ -1060,7 +1060,7 @@ optional hardening: <if any>
 <!-- pr-review:justification=<Reachable|Precedent|Asymmetric|Historical|Hygiene> -->
 ````
 
-The four reader-facing labels (`現在` / `建議` / `修法` / `判斷`, or `Now` / `Suggest` / `Fix` / `Call` when the PR is in English) render in the PR's language; every label inside `<details>` stays English. `現在` describes the behaviour, never the code (`改完重開 terminal 看到的還是舊 build`, not `.next 沒重建`); `建議` describes the behaviour after the fix, never the edit (`改完自動重 build`); `修法` is the one edit — `file:line` plus what to do, one sentence, the same edit `Mitigation:` carries inside `<details>` in the subagent's words.
+The four reader-facing labels (`現在` / `建議` / `修法` / `判斷`, or `Now` / `Suggest` / `Fix` / `Call` when the PR is in English) render in the PR's language; every label inside `<details>` stays English. `現在` describes the behaviour, never the code (`改完重開 terminal 看到的還是舊 build`, not `.next 沒重建`); `建議` describes the behaviour after the fix, never the edit (`改完自動重 build`); `修法` is the one edit — `file:line` plus what to do, one sentence, the same edit `Mitigation:` carries inside `<details>` in the subagent's words. When the subagent replaced `Mitigation:` with a scope `Question:`, `修法` renders that question and `判斷` is `問你`.
 
 The root markers are consumed by `pr-babysit` and by later incremental reviews. The `justification` HTML marker is consumed by `pr-babysit`'s diminishing-returns gate to decide whether to keep looping or hand back to the user; its race-class parser reads the `[window=…, damage=…, recovery=…]` tag from anywhere in the body, so the tag travels with `Mitigation:` inside `<details>`. `Hygiene` is kept in the value list for `pr-babysit` compatibility; pr-review no longer emits it (hygiene drops are silent), and it must never appear on a P0/P1/P2 finding.
 
@@ -1183,7 +1183,7 @@ digraph publish {
 
 The `Evidence:` cite-or-drop rule is enforced at emission, but emission is not where it fails. Assert on the *rendered payload*, immediately before posting:
 
-1. **Evidence block is non-empty.** Every inline root must contain a `<summary>Evidence</summary>` block with at least one non-whitespace line. An empty block means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
+1. **Evidence is non-empty.** Every inline root must contain its collapsed `<details>` block (`細節` in the template) with a diff fence holding at least one non-whitespace line. An empty fence means the quote was lost between the subagent report and the payload — the finding is unciteable and MUST NOT post. Drop it and note the drop in the sticky.
 2. **No swallowed identifiers.** `Failure mode` and `Mitigation` must not contain a run of two or more spaces between non-space characters. That gap is where an inline-code span used to be; a body reading "若 X 期間 ␣␣ 拋例外，␣␣ 寫入 ␣␣ 而非 ␣␣" is unreadable and tells the author nothing.
 3. **Body round-trips.** Build every payload by writing the markdown to a file and passing it as a file argument (`--input`, `-F body=@file`). Never interpolate finding markdown into a double-quoted shell string.
 
@@ -1270,11 +1270,13 @@ gh api -X POST repos/$OWNER/$REPO/statuses/$HEAD \
 # 5. inline — one batched review. Skip when none this iteration.
 # Write it as "$PAYLOAD_DIR/inline-comments.json":
 # [{"path": "...", "line": N, "side": "RIGHT", "body": "..."}, ...]
+# `-F comments=@file` sends the file as ONE STRING and GitHub answers 422 "comments is not an
+# array"; build the whole review body with jq and pass it via --input (verified live).
 if [ "$(jq 'length' "$PAYLOAD_DIR/inline-comments.json")" -gt 0 ]; then
-  gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews \
-    -F event=COMMENT \
-    -F body="pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
-    -F comments=@"$PAYLOAD_DIR/inline-comments.json" && POSTED=1
+  jq -n --arg body "pr-review iteration · $STATUS_DESCRIPTION · $STICKY_URL" \
+        --slurpfile comments "$PAYLOAD_DIR/inline-comments.json" \
+        '{event: "COMMENT", body: $body, comments: $comments[0]}' > "$PAYLOAD_DIR/review.json"
+  gh api -X POST repos/$OWNER/$REPO/pulls/$N/reviews --input "$PAYLOAD_DIR/review.json" && POSTED=1
 fi
 
 # 6. reconcile — rebuild sticky.md from the threads that actually posted, then PATCH again.

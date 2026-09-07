@@ -250,7 +250,7 @@ Blast: Cross-service
 
 Evidence: cursor.execute(f"SELECT * FROM accounts WHERE id = {account_id}")
 Failure mode: f-string SQL allows attacker-controlled account_id to read or modify arbitrary rows (CWE-89)
-Mitigation: parameterize — cursor.execute("... WHERE id = %s", (account_id,))
+Mitigation: edit payments/handler.py:45 — parameterize: `cursor.execute("... WHERE id = %s", (account_id,))`
 ```
 
 **IS my finding (S4, downgraded with reason):**
@@ -263,7 +263,7 @@ Blast: Local
 
 Evidence: @router.get("/debug/dump")\ndef dump_state(): ...
 Failure mode: endpoint lacks auth decorator; if /internal/ gateway misconfigures, dump_state is reachable unauthenticated
-Mitigation: add @require_admin
+Mitigation: edit internal/admin/debug.py:12 — add `@require_admin` above `dump_state`
 Notes: route is registered under /internal/ which has gateway-level auth per middleware change at gateway/auth.py:8 in this diff; downgraded from 🚨. Confirm /internal/ is gateway-only.
 ```
 

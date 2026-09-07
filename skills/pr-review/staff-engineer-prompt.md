@@ -104,7 +104,7 @@ Justification: Reachable | Precedent | Asymmetric | Historical
 
 Evidence: <verbatim quote of the offending diff line(s)>
 Failure mode: <one-line — what bug / break / drift manifests if shipped as-is; quantify when possible>
-Mitigation: <one-line refactor or fix>
+Mitigation: <one edit — `<edit verb> <file:line> — <the change>`; see Mitigation shape>
 Details: <optional — multi-step race repro, cross-file callsite list, code patch. Use only when Failure mode genuinely needs more than one line>
 Notes: <optional — only if severity differs from default; explain why>
 ```
@@ -249,7 +249,7 @@ Blast: Module
 
 Evidence: for user_id in user_ids:\n    user = db.query(User).filter_by(id=user_id).first()
 Failure mode: N+1 query inside loop; user_ids unbounded from caller — at typical batch ≈100, 100 DB round-trips per request
-Mitigation: batch — db.query(User).filter(User.id.in_(user_ids)).all()
+Mitigation: edit api/users/handler.py:78-82 — batch the lookup: `db.query(User).filter(User.id.in_(user_ids)).all()`
 ```
 
 **IS my finding (E7 cross-file impact, escalated):**
