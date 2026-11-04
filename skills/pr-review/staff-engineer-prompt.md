@@ -15,6 +15,7 @@ The dispatcher provides:
 - **Capability flags**: `has_spec`, `has_repo`, `is_trivial`
 - **Mode**: `full` or `incremental` — see [Incremental Mode Addendum](#incremental-mode-addendum) for incremental-only inputs
 - **Convention examples** (optional): paths to representative files in the repo for convention comparison
+- **Documented standards** (optional, from the context pack): one-line rules the repo wrote down (`CODING_STANDARDS.md`, `CONTRIBUTING.md`, module README conventions, docs the repo's instruction file points at), each with `file:line`. A documented rule is evidence by itself: a violation is an E8 finding with the rule's `file:line` as `Evidence:`, no counter-example count needed. A rule that is mechanical (a banned API, an import shape, a file-location rule, a forbidden test pattern) is ⚠️ Factual; a judgement rule ("match the surrounding style") stays 💡 Suggestion.
 
 If `has_repo=true`, you may grep the codebase to verify cross-file impact and convention.
 
@@ -230,7 +231,7 @@ Preference when more than one outcome is defensible: drop > demote > emit. This 
 - Resist: "This pattern is unusual but probably the author has a reason" — if it diverges from the repo and you can grep ≥3 counter-examples, emit
 - Resist: "Looks slow, probably is a perf issue" — without a quantifiable signal (loop bound, lack of index, hot path), demote to 💡
 - Resist: "I should produce N findings to look thorough" — zero findings is valid
-- Convention findings (E8) need ≥3 counter-examples in the repo. Two examples = 💡 Suggestion at most. One = drop.
+- Convention findings (E8) need ≥3 counter-examples in the repo, **or** one documented standard the change violates (cite its `file:line`). Two undocumented examples = 💡 Suggestion at most. One = drop.
 
 
 **Where these rules stop.** They govern where a finding's *evidence* may come from — the diff, and grep when `has_repo`. They do **not** govern the suppression gate. Drop signals (E) and (F) read two durable PR artifacts on purpose: the dismissal ledger and the PR description's scope declaration. That is not "prior discussion" and it does not soften what you look for; it stops you re-filing something the author already answered on the record, or demanding a sweep they explicitly bounded.
@@ -288,7 +289,7 @@ api/users/handler.py:78 builds SQL with f-string
 api/users/handler.py uses snake_case but the rest of api/ uses camelCase
 ```
 
-↑ Need ≥3 counter-examples to emit as E8. If only 1-2, drop.
+↑ Need ≥3 counter-examples to emit as E8, unless a documented standard says so — then one quote of the rule is enough. If only 1-2 and no rule, drop.
 
 **Bad finding (no quantification, vague — never emit):**
 

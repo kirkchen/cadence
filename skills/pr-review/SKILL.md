@@ -471,6 +471,7 @@ Allowed sources:
 - User-provided `spec`, `context`, `test direction`, and `repo rules`
 - Beat change artifacts or ADRs explicitly linked in the PR body or user-provided spec/context
 - Module README / repo instruction files selected by changed paths when the caller provides them as `repo rules`
+- **Documented standards** — when `has_repo`, the dispatcher finds them itself, the caller does not have to: every committed file that says how code in this repo should be written. Search, in this order, and stop adding once the pack is compact: `CODING_STANDARDS.md` and `CONTRIBUTING.md` at the root (always on the list when they exist); the sections of the root `CLAUDE.md` / `AGENTS.md` that point at conventions docs, and the docs they point at; a `README.md` beside any changed path, its conventions / invariants / testing sections; `docs/**` files whose name contains `convention`, `standard`, `style` or `guideline`. Keep only the rules that touch the changed paths, each as one line with its `file:line`, under a `documented standards` heading in the pack. A rule written down in the repo is evidence a reviewer may cite on its own; it is not "style preference". This is what makes a retro's output (a new rule in the standards file) reach the next review.
 - **Deployment context** — the PR body's statements of where the changed code runs and who can reach it (target platform, environment, tenancy, which ports are exposed and how), or the same from the `context` input. Passed to subagents as `deployment context`. It is evidence about attacker position and blast radius, not a claim that the code is safe — a sentence of the second kind ("the bind is fine because…") stays excluded like any other author narrative.
 - **The dismissal ledger** — author replies harvested per [Reply harvesting](#reply-harvesting), from **both** channels it names: finding threads and standalone PR/MR comments that name the finding they answer. These are durable, attributable, on-the-record artifacts written in response to a specific finding, not conversation. A finding published without a line anchor has no thread, so excluding standalone comments would exclude its only possible reply.
 
@@ -575,7 +576,7 @@ Each subagent receives:
 - Diff (full in `full` mode; `<last_sha>..HEAD` in `incremental` mode)
 - Capability flags (has_spec, has_repo, is_trivial)
 - Mode (`full` / `incremental`)
-- Compact context pack from [Context Hydration](#context-hydration)
+- Compact context pack from [Context Hydration](#context-hydration), including its `documented standards` lines — staff-engineer enforces them under E8, sdet under T-categories for testing conventions
 - Role-specific inputs only where applicable (spec content for spec-auditor, test direction for sdet)
 - Deployment context from [Context Hydration](#context-hydration), whenever the PR body or `context` input states one — security-reviewer's § Attacker position depends on it, and "none provided" is itself a value that means every network position is in play
 - In `incremental` mode (dispatcher MUST provide all four):
