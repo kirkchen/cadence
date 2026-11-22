@@ -35,6 +35,10 @@ Past all three guardrails, these are worth flattening:
 
 Condition 4 needs care. Extracting a small function with a good name is usually an **improvement**. It only qualifies when the name adds no information the call site did not already have.
 
+## Lint First
+
+Conditions 1 and 2 are often a shape a lint rule can state — a type alias whose right-hand side is another alias, a function whose body is one call with its own arguments. When one is, the output is the rule, not the next flattening — see `SKILL.md` § The Routine Contract, prefer a lint rule to a hand fix. Flattening one layer per run means meeting the same layer again next run; a rule means meeting it once.
+
 ## Workflow
 
 1. Pick a subdirectory, one per run.

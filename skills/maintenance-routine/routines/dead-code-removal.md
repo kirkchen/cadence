@@ -22,12 +22,22 @@ Any doubt on any condition → do not delete. It goes in `## Observations`, wher
 
 Deliberately-retained transitional code deserves specific mention: migrations run as expand-then-contract leave vestigial fields and dual-read branches on purpose, and comments usually say so. Removing them early is a migration decision, not maintenance. Skip anything whose comments read as a planned interim state.
 
+## Branches And Fallbacks
+
+This archetype owns code that cannot run *inside* a function as well as symbols nothing references: a fallback, default arm or error path whose guard can never hold. `logic-simplifier` hands these over instead of removing them.
+
+For these, condition 1 is a reachability argument rather than a symbol search: the guard, and every caller or input source that could make it hold, written out in `## Evidence` so a reviewer can check each one. Conditions 2 and 3 apply as written. One more skip, carried over from `logic-simplifier` because the code moved to a routine without that guardrail: a branch whose comment explains it as a guard against a race, an ordering problem or a bug that already happened is not dead because the call graph says so today.
+
+## Lint First
+
+Unused imports, locals and parameters are what the repo's lint "unused" rules catch. When a candidate is one of those and the rule is switched off, the output is enabling the rule, not deleting a few by hand — see `SKILL.md` § The Routine Contract, prefer a lint rule to a hand fix. A run that removes two imports is a run that will remove two more next week.
+
 ## Workflow
 
 1. Pick the subdirectory. Note why.
-2. List candidates: unreferenced exports (functions, types, components, constants), branches that can never be true, handlers nothing registers.
+2. List candidates: unreferenced exports (functions, types, components, constants), branches and fallbacks that can never be reached, handlers nothing registers.
 3. Apply the three conditions to each, searching repo-wide.
-4. Delete survivors, along with tests that exist only to cover the deleted code.
+4. Delete survivors, along with tests that exist only to cover the deleted code — or, for a lint-catchable class, write the rule instead.
 5. Verify.
 6. Open the PR.
 
@@ -41,8 +51,8 @@ The config's commands. All green before the PR exists.
 - Title: `refactor(<scope>): remove unreachable <summary>`
 - One theme per PR, at most **300 deleted lines** — over that, split
 - Required body sections:
-  - `## Removed` — path and name of every deleted symbol
-  - `## Evidence` — the actual search commands and their output, showing no references
+  - `## Removed` — path and name of every deleted symbol, or path and line of every deleted branch
+  - `## Evidence` — the actual search commands and their output, showing no references; for a branch, the guard and the callers that rule it out
   - `## Verification` — command output
   - `## Observations` — suspected but uncleared candidates (`none` if empty)
 

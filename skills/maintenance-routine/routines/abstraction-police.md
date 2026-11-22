@@ -55,7 +55,7 @@ done
 
 Compare against every path your change would touch — for a move, the source and the destination. **Any shared path is a collision**, whatever the size of the other PR and whoever opened it; draft PRs and this routine's own earlier PRs count. The violation is still there next run, so skipping costs one tick, while a collision costs a reviewer's attention and can end as an empty diff.
 
-On a collision, drop the candidate and open no PR for it. Record the PR number and the shared paths in `## Observations` of any PR this run does open; if it opens none, in the run output (`SKILL.md` § When Nothing Qualifies).
+On a collision, drop the candidate and open no PR for it. Record the PR number and the shared paths in `## Observations` of any PR this run does open; if it opens none, in the run output (`SKILL.md` § When Nothing Qualifies), ending on `No PR opened: collided with open PR #<n>`.
 
 ## Verification
 

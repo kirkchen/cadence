@@ -25,17 +25,18 @@ Simplification is behaviour-preserving. The unchanged suite passing is the proof
 Past all three guardrails, these are worth simplifying:
 
 1. **The same condition is evaluated repeatedly** — early returns can merge, nested conditionals can flatten.
-2. **An unreachable branch** — earlier conditions already cover it. Where this overlaps `dead-code-removal`, leave it to that routine.
-3. **Deep nesting replaceable by early return** — three or more levels, with no cleanup logic depending on the nesting.
-4. **A variable assigned once and used immediately** — *and* carrying no naming intent. A well-named intermediate is documentation; do not destroy one to save a line.
+2. **Deep nesting replaceable by early return** — three or more levels, with no cleanup logic depending on the nesting.
+3. **A variable assigned once and used immediately** — *and* carrying no naming intent. A well-named intermediate is documentation; do not destroy one to save a line.
 
-Anything outside these four is "I find this more readable", which is not a mandate. Leave it.
+Anything outside these three is "I find this more readable", which is not a mandate. Leave it.
+
+**Unreachable branches and fallbacks are not on this list — `dead-code-removal` owns them.** Do not remove one here and do not open a PR for it. Record its path and line, and the guard that rules it out, in `## Observations` (in the run output if the run opens no PR).
 
 ## Workflow
 
 1. Pick a subdirectory, one per run.
 2. Run candidates through the three guardrails. Most will die here.
-3. Apply the four conditions to the rest.
+3. Apply the three conditions to the rest.
 4. One function at a time; run its test immediately after each change.
 5. Full verification.
 6. Open the PR.

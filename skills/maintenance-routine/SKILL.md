@@ -71,7 +71,19 @@ Every archetype obeys all of this. Archetype files restate the parts they most o
 
 **No findings → no PR.** An empty or padded PR is worse than silence: it costs review attention and it corrupts the merge-rate signal that tells you whether the routine is worth running. Ending with "scanned X, considered Y and Z, neither cleared condition 3, opened nothing" is a **successful** run. Say so plainly rather than reaching for something marginal.
 
+**Say why when no PR opens.** Any run that ends without opening a PR — nothing qualified, a collision, failed verification, a Preflight stop — makes its final message one line:
+
+```
+No PR opened: <reason>
+```
+
+`<reason>` names the specific blocker: `no candidate qualified`, `collided with open PR #<n>`, `verification failed: <command>`, `preflight: <gate> failed`. The detail (see [When Nothing Qualifies](#when-nothing-qualifies)) goes in the messages before it, never after. The point is that someone reading only the last message of a scheduled run learns why it was silent.
+
 **Respect the per-run PR cap.** Each archetype file states its own (1–3). The cap is about reviewer throughput, not about how much you found. Surplus candidates go in `## Observations`.
+
+**Prefer a lint rule to a hand fix.** Before changing anything for a surviving candidate, ask whether the repo's own lint could catch its class: an existing rule that is switched off, or a new rule written in whatever custom-lint pattern the repo already uses. A class is lint-catchable when a rule can decide it from the source alone — syntax, imports, types — without flagging correct code. If it is, the output is the rule, not another patch: one `build(lint)` PR, counted against this run's cap and branch-named like any other PR of the archetype, built the way `abstraction-police` § Prefer A Lint Rule Over A Fix describes. A patch removes one occurrence and the next run finds the next, which is how one cause turns into a stream of two-line PRs.
+
+Not lint-catchable here — the config names no lint command, or the rule would need a new linter or dependency, or its config sits under a forbidden path — means fix by hand as the archetype says, and record the rule that would have caught it in `## Observations`.
 
 **Name branches for accounting.**
 
@@ -100,15 +112,15 @@ Nothing enforces this at the platform level. Branch protection and human review 
 2. Pick this run's target — subdirectory, module, or whatever unit the archetype rotates over. Prefer areas untouched recently; `git log --since='60 days ago' --name-only` shows which parts of the tree are cold. State the choice and the reason in the PR body.
 3. Enumerate candidates.
 4. Apply the archetype's qualification test to each. This is where most candidates die, and that is the design working.
-5. Make the change for the survivors, up to the PR cap.
+5. Make the change for the survivors, up to the PR cap — or, where a survivor's class is lint-catchable, the lint rule in its place (see the contract).
 6. Run the full verification suite. Compare against the baseline.
-7. Open the PR(s), or report that nothing qualified.
+7. Open the PR(s), or report that nothing qualified. With no PR, end on the one-line reason.
 
 ## Verification
 
 Run the config's commands verbatim. A candidate whose change does not come back green is abandoned, not debugged into submission — write it up in `## Observations` and move on.
 
-Paste real output in `## Verification`. When an archetype requires a red-then-green demonstration (`logic-bugfixer`'s failing test, `abstraction-police`'s new lint rule), both halves are required.
+Paste real output in `## Verification`. When an archetype requires a red-then-green demonstration (`logic-bugfixer`'s failing test, any new lint rule), both halves are required.
 
 **Leave the tree clean.** Archetypes that temporarily mutate source to test something (`useless-test-pruner`, `logic-simplifier`) must restore it and confirm with `git status` before continuing. A mutation that leaks into a PR discredits every routine PR that follows it.
 
@@ -134,6 +146,9 @@ Report, in the run output rather than a PR:
 - Which target was scanned and why it was chosen
 - Which candidates were considered
 - Which condition each one failed
+- Whatever would have gone in `## Observations`
+
+Then close with the one-line `No PR opened: <reason>` from [The Routine Contract](#the-routine-contract).
 
 This is the most common outcome for the lower-objectivity archetypes and it is not a failure. Padding it into a PR is.
 
