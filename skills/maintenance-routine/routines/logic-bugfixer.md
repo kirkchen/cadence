@@ -26,16 +26,28 @@ All three, or it is not a bug you may fix:
 
 No failing test, no finding. Condition 2 is not a formality: it is the line between a bug and a hypothesis, and hypotheses go in `## Observations`.
 
+## Sweep Siblings — One Defect, One PR
+
+A bug is usually one instance of a way of writing code, and fixing instances one at a time turns a single defect into as many PRs as there are sites, each asking a reviewer to relearn the same pattern. Once a candidate has its failing test, search for its siblings before fixing anything.
+
+1. **Name the pattern as a construct, not a symptom** — the call, idiom or API, used on the kind of input that triggers the bug. "Also gives a wrong result somewhere" is not a pattern.
+2. **Search the whole repo for it.** The module lock and the config's scan scope do not apply; the forbidden paths still do. Follow the construct through any wrapper that hides it. This is not wandering: the lock governs where you *look for* bugs, and the sweep only follows one you already hold a failing test for.
+3. **Put every hit through Qualification** — its own trigger sequence, its own failing test, its own violated invariant or plainly wrong result. A hit that clears all three is fixed in this PR. A hit where the construct is used safely, because its inputs cannot trigger the bug, is not a bug: record it in `## Sweep` with the reason. A hit you suspect but cannot reproduce goes in `## Observations`, like any hypothesis.
+4. **Same symptom, different cause is a different bug.** It is not swept; `## Observations`.
+
+The PR carries **at most 300 changed lines, tests included**. The original site always goes in. Past the ceiling, stop at the last whole site that fits, highest-consequence first, and list every site left — path, line, and why it was left (over the ceiling, forbidden path, needs a schema change, no reproducing test) — in `## Observations`. Do not open a follow-up PR for the leftovers: `## Observations` is where a human picks them up, and splitting one defect across PRs is the cost this section exists to remove.
+
 ## Workflow — Test-First, Order Not Negotiable
 
 1. Lock the module. Read it and every spec entry that governs it.
 2. Enumerate candidates: boundary conditions, concurrent interleavings, error paths, early returns.
 3. **Write the test. Watch it fail. Keep the output.**
-4. Then change production code. Watch it pass.
-5. Full verification.
-6. Open the PR.
+4. Sweep for siblings (above), before changing any production code — the sweep decides how much this PR carries.
+5. Then change production code. Watch it pass. Repeat 3 and 5 for each sibling the sweep let through: its own test, red first, then its own fix.
+6. Full verification.
+7. Open the PR.
 
-Reversing 3 and 4 produces a test that merely describes the code you just wrote, which proves nothing about the bug and nothing about the fix.
+Reversing the test and the fix produces a test that merely describes the code you just wrote, which proves nothing about the bug and nothing about the fix.
 
 ## Verification
 
@@ -47,15 +59,16 @@ Tests needing real infrastructure are slow, but concurrency and transaction bugs
 
 - Branch: `claude/logic-bugfixer/<YYYY-MM-DD>-<n>`
 - Title: `fix(<scope>): <summary>`
-- **One bug per PR**
+- **One bug per PR** — the bug and every other site written the same way (see Sweep Siblings). Two different bugs are two PRs.
 - Required body sections:
   - `## Module` — which module, and why it was chosen
   - `## Bug` — the trigger sequence, step by step
   - `## Spec basis` — the violated invariant, quoted, with its source
-  - `## Red` — the new test failing, before the fix
-  - `## Green` — the same test passing, after
+  - `## Sweep` — the search as run (command or pattern, verbatim), and every hit with its disposition: fixed here, not a bug (with the reason), or left for `## Observations`
+  - `## Red` — every new test failing, before its fix
+  - `## Green` — the same tests passing, after
   - `## Verification` — command output
-  - `## Observations` — suspicions with no reproducing test (`none` if empty)
+  - `## Observations` — sites left by the sweep, and suspicions with no reproducing test (`none` if empty)
 
 ## Forbidden
 

@@ -27,6 +27,35 @@ Ordering matters: a rule that stops the tenth recurrence is worth more than nine
 - The violation maps to a **specific written rule**. The PR body cites it — decision-record number, or document and section.
 - No matching written rule → not this archetype's business. `## Observations`.
 - The fix preserves external behaviour. If correcting the violation necessarily changes behaviour, do not do it — that is a change proposal for a human, so `## Observations`.
+- **No open PR touches the same files** — see below.
+
+## Collision Check
+
+Fixes here are often moves and renames, and two PRs that relocate or rewrite the same files cannot both land: the second rebases onto the first and is left with a conflict, or with an empty diff. Check before spending effort on a candidate, and again immediately before opening its PR, since a run can be long.
+
+List every open PR with the paths it changes, a rename counted under both its old and new path:
+
+```bash
+# GitHub
+for n in $(gh pr list --limit 200 --json number --jq '.[].number'); do
+  echo "#$n"
+  gh api "repos/{owner}/{repo}/pulls/$n/files" --paginate \
+    --jq '.[] | .filename, .previous_filename // empty'
+done
+
+# GitLab
+for iid in $(glab api "projects/:id/merge_requests?state=opened" --paginate | jq -r '.[].iid'); do
+  echo "!$iid"
+  glab api "projects/:id/merge_requests/$iid/diffs" --paginate \
+    | jq -r '.[] | .new_path, .old_path'
+done
+```
+
+`gh pr list --json files` is not a substitute: it reports a renamed file under its new path only, so a PR that moves the same files somewhere else would not overlap.
+
+Compare against every path your change would touch — for a move, the source and the destination. **Any shared path is a collision**, whatever the size of the other PR and whoever opened it; draft PRs and this routine's own earlier PRs count. The violation is still there next run, so skipping costs one tick, while a collision costs a reviewer's attention and can end as an empty diff.
+
+On a collision, drop the candidate and open no PR for it. Record the PR number and the shared paths in `## Observations` of any PR this run does open; if it opens none, in the run output (`SKILL.md` § When Nothing Qualifies).
 
 ## Verification
 
@@ -44,7 +73,7 @@ For a lint-rule PR, additionally demonstrate the rule works: the lint command **
   - `## Violation` — path and line, and why it violates the rule
   - `## Fix` — what changed, and why external behaviour is unchanged
   - `## Verification` — command output
-  - `## Observations` — suspicious things with no written rule behind them (`none` if empty)
+  - `## Observations` — suspicious things with no written rule behind them, and candidates dropped for a collision (`none` if empty)
 
 ## Forbidden
 
