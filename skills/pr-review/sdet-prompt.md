@@ -19,6 +19,8 @@ The dispatcher provides:
   - `location`: expected test file path, e.g. `tests/payment_test.py`
   - `focus`: scenario or case the test should cover
 
+- **Documented standards** (optional, from the context pack): the repo's written testing conventions (an e2e README's flake rules, a `CONTRIBUTING.md` section on test layout, lint rules the repo enforces by hand), each as one line with `file:line`. A test that breaks a written rule is a finding with that `file:line` as `Evidence:`; you do not need to find other tests that follow it.
+
 If `has_repo=true`, you may grep the codebase to find existing tests covering the changed code.
 
 ## Owned Categories (T1–T4)

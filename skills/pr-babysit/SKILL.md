@@ -53,6 +53,7 @@ Filter on **content**, not author:
 - **Valid** — bug, security, logic error, clear actionable suggestion
 - **Discuss** — ambiguous, possible source misread, design tradeoff, scope unclear → **do NOT reply autonomously, do NOT implement** — collect for user
 - **Out-of-scope** — clearly outside this PR's stated goal → collect for user
+- **Spec change** — the fix would touch `beat/features/` or change what a Gherkin scenario says. The branch was archived before the PR, so this is a behaviour change the human has to see → treat as Discuss, report `needs-user-input`
 
 **Checks** — for each failing check: pull the failure log via CLI, diagnose root cause before attempting a fix (no patch without a named cause). Distinguish real failure vs flaky; only retry on evidence of flake. If the failure log doesn't contain the actual findings → invisible-findings gate above.
 

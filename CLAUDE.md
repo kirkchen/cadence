@@ -8,8 +8,6 @@ This file guides Claude Code (and other AI agents via the `AGENTS.md` symlink) w
 
 Cadence is a Claude Code / Codex plugin shipping skills for the AI coding lifecycle — from issue intake to merged PR:
 
-- `triage-issue` — single-issue triage: labels + meta comment
-- `investigate-issue` — single-issue deep-dive: verify claims at HEAD, propose fix direction
 - `self-review` — pre-push codex cross-model loop
 - `pr-review` — on-PR multi-role subagent dispatch (4 fresh role contexts)
 - `pr-babysit` — until-merge CI watch + reviewer-feedback triage
@@ -25,8 +23,6 @@ Each skill lives in `skills/<name>/SKILL.md`. There is **no application code** �
 .agents/plugins/            # Codex marketplace manifest (kirkchen-cadence)
 plugins/cadence/            # Codex plugin overlay — symlinks back to root
 skills/
-├── triage-issue/SKILL.md
-├── investigate-issue/SKILL.md
 ├── self-review/SKILL.md
 ├── pr-review/
 │   ├── SKILL.md
@@ -48,7 +44,7 @@ The dual-manifest layout means one repo serves both Claude Code (`.claude-plugin
 2. **Subagent dispatch is mandatory** in pr-review — never collapse the 4 role prompts into one prompt, and never let the dispatcher answer a question a subagent exists to answer (the `rebuttal-assessor` that weighs an author's rebuttal is one of these: the party holding the finding cannot fairly judge an argument against it). Each role is a *fresh* context with a different mental model. Pooling them defeats the diversity guarantee. Dispatch must also be **blocking** (`run_in_background: false` on every Agent call): the host defaults to background and its tool description discourages opting out, so leaving this to the model's judgement means the dispatcher ends its turn with reports still in flight — and on a non-interactive host (Rhythm worker, CI), turn end *is* run end, so those reports and the whole publish step are silently lost. Any skill text about dispatch must keep saying this explicitly; "in parallel" alone is not enough.
 3. **`self-review` is cross-model**, not Claude-vs-Claude. Calling Claude to grade Claude's own diff is the same bias trap as pr-review's gate.
 4. **`pr-babysit` never auto-merges.** It reports ready-to-merge and stops. Merge is a human decision.
-5. **Intake skills are single-issue.** `triage-issue` / `investigate-issue` process one issue per invocation. Batch / backlog walkthroughs are the caller's responsibility — keep the skill a pure unit. Don't pull `gh issue list` orchestration into the skill itself.
+5. **No intake skills.** `triage-issue` / `investigate-issue` were retired in 2026-11: the only intake question that gates anything is "can an agent take this now", and `/beat:explore` + `/beat:to-issue` answer it. Do not reintroduce label bookkeeping here.
 6. **No project-specific assumptions in skill text.** Cadence is meant to be repo-agnostic. Hardcoded paths, internal hostnames, project names, language defaults → reject in review. `maintenance-routine` is the sharpest test of this rule, because it was extracted from a codebase-specific original: anything naming a path, a package manager or an internal symbol belongs in the target repo's `.claude/routines.md`, never in the skill. A generalisable rule that has leaked *out* into a repo config is the same bug in the other direction — pull it back.
 7. **`maintenance-routine` never merges, and never opens an empty PR.** It runs unattended, so it is the one skill whose failure mode is unsupervised. Both rules exist so a run that finds nothing costs nothing: the qualification tests are meant to reject most candidates, and "scanned X, nothing qualified" is a successful run. Any change that makes a routine more likely to produce a PR needs to argue why the merge rate will hold.
 8. **`maintenance-routine` refuses to run without config.** No `.claude/routines.md` → stop and print the schema. No green baseline at HEAD → stop and report. Do not add inference fallbacks for either: guessing forbidden paths is how a routine ends up editing migrations, and a red baseline makes every safety claim in the resulting PR unfalsifiable.
